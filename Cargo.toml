@@ -1,0 +1,15 @@
+[workspace]
+members = ["common", "relay"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Toshiaki Takada <toshi@reze.rs>"]
+edition = "2021"
+description = "DHCP"
+repository = "https://github.com/sjtakada/dhcp-rs"
+readme = "README.md"
+keywords = ["DHCP", "Networking"]
+license = "Apache-2.0"
+categories = ["network-programming"]
+

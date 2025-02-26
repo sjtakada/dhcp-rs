@@ -1,0 +1,12 @@
+[package]
+name = "relay"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "DHCP relay"
+
+[dependencies]
+libc = "0.2.168"
+nix = { version = "0.29.0", features = ["uio", "socket", "net"]}
+thiserror = "2.0.7"
+
