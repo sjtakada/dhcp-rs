@@ -3,6 +3,9 @@
 // DHCP-RS
 //   Copyright (C) 2024-2025, Toshiaki Takada
 //
+
+pub mod address_family;
+pub mod netlink;
 pub mod encode;
 pub mod options;
 pub mod message;
@@ -16,7 +19,7 @@ use std::net::Ipv6Addr;
 
 use thiserror::Error;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug)]
 pub enum DhcpError {
     #[error("Invalid BOOTP Message Type")]
     InvalidBootpMessageType,
@@ -38,6 +41,10 @@ pub enum DhcpError {
     EncodeError,
     #[error("Decode error")]
     DecodeError,
+    #[error("I/O error")]
+    IoError(#[from] std::io::Error),
+    #[error("Netlink error")]
+    NetlinkError,
     #[error("Unknown error")]
     UnknownError,
 }

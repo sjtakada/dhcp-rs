@@ -22,36 +22,37 @@ use nix::sys::socket::RecvMsg;
 use nix::sys::socket::SockaddrIn;
 use nix::sys::socket::sockopt::Ipv4PacketInfo;
 use nix::sys::socket::sockopt::ReusePort;
-
-use libc::in_addr;
-use libc::in_pktinfo;
-use libc::ntohl;
+use libc::*;
 
 use crate::*;
 use crate::message::*;
 use crate::config::*;
+use crate::netlink::*;
 
 /// Relay Agent.
 pub struct RelayAgent {
 
     /// Relay config.
     config: RelayConfig,
+
+    /// Netlink interaface.
+    netlink: Netlink,
 }
 
 impl RelayAgent {
     pub fn new(config: RelayConfig) -> RelayAgent {
-        RelayAgent { config }
+        let netlink = Netlink::new().unwrap();
+
+        RelayAgent { config, netlink }
     }
 
-    pub fn get_ifindex_from_recvmsg(&self, res: RecvMsg<SockaddrIn>) -> i32 {
-        let mut ifindex = 0;
-
+    pub fn get_pktinfo_from_recvmsg(&self, res: RecvMsg<SockaddrIn>) -> Option<in_pktinfo> {
         //while let Ok(mut cmsg) = res.cmsgs() {
         for mut cmsg in res.cmsgs() {
             if let Some(item) = cmsg.next() {
                 match item {
                     ControlMessageOwned::Ipv4PacketInfo(info) => {
-                        ifindex = info.ipi_ifindex;
+                        return Some(info)
                     }
                     _ => {
                         // placeholder
@@ -60,49 +61,47 @@ impl RelayAgent {
             }
         }
 
-        ifindex
+        None
     }
 
-    pub fn start(&self) {
-        let sock = UdpSocket::bind("0.0.0.0:67").expect("Error: UdpSocket::bind()");
+    pub fn start(&self) -> Result<(), DhcpError> {
+        self.netlink.get_link_all();
+        self.netlink.get_address_all();
+
+        let sock = UdpSocket::bind("0.0.0.0:67")?;
         let fd = sock.as_raw_fd();
         let mut cmsg = cmsg_space!(in_pktinfo);
 
-        sock.set_broadcast(true).expect("set broadcast call failed");
+        let res = sock.set_broadcast(true).expect("set broadcast call failed");
+        println!("* Set socket broadcast {:?}", res);
 
         // TODO check result.
-        setsockopt(&sock, Ipv4PacketInfo, &true).unwrap();
-        setsockopt(&sock, ReusePort, &true).unwrap();
+        let res = setsockopt(&sock, Ipv4PacketInfo, &true).unwrap();
+        println!("* Set setsockopt Ipv4PacketInfo {:?}", res);
+
+        let res = setsockopt(&sock, ReusePort, &true).unwrap();
+        println!("* Set setsockopt ReusePort {:?}", res);
 
         let mut ds_ifindex = 0;
 
         loop {
             let mut buf: &mut [u8] = &mut [0; 2048];
             let mut iov = [IoSliceMut::new(&mut buf)];
-
             let res: RecvMsg<SockaddrIn> = recvmsg(fd, &mut iov, Some(&mut cmsg), MsgFlags::empty()).unwrap();
+
             println!("Received request res {:?}", res);
             //println!("Received request: size {:?}, address {:?}, flags {:?}", result.bytes, result.address, result.flags);
 
-            let mut agent_ip = None;
-            let mut ifindex = 0;
-
-            //while let Ok(mut cmsg) = res.cmsgs() {
-            for mut cmsg in res.cmsgs() {
-                println!("{:?}", cmsg);
-                if let Some(item) = cmsg.next() {
-                    match item {
-                        ControlMessageOwned::Ipv4PacketInfo(info) => {
-                            println!("{:?}", info);
-                            ifindex = info.ipi_ifindex;
-                            agent_ip = Some(Ipv4Addr::from(ntohl(info.ipi_spec_dst.s_addr)));
-                        }
-                        _ => {
-                            println!("Unknown control message");
-                        }
-                    }
+            let pktinfo = match self.get_pktinfo_from_recvmsg(res) {
+                Some(pktinfo) => pktinfo,
+                None => {
+                    println!("Failed to retrieve IP_PKTINFO");
+                    continue;
                 }
-            }
+            };
+
+            let dst_ip = Ipv4Addr::from(ntohl(pktinfo.ipi_spec_dst.s_addr));
+            let ifindex = pktinfo.ipi_ifindex;
 
             if let Ok(mut dhcp_message) = DhcpMessage::new_from(&iov[0][..]) {
                 println!("{:?}", dhcp_message);
@@ -111,18 +110,16 @@ impl RelayAgent {
                 //    
                 // }
 
-                println!("{:?}", iov.len());
-
                 match dhcp_message.op {
                     // XXX remember received interface and IP address
                     // and put it in agent option
                     BootpMessageType::BOOTREQUEST => {
-                        println!("*** from client");
+                        println!("* Received BOOTREQUEST");
 
                         // record downstream ifindex for later use.
                         ds_ifindex = ifindex;
 
-                        dhcp_message.giaddr = agent_ip.unwrap();
+                        dhcp_message.giaddr = dst_ip;
 
                         if let Ok((buf, len)) = dhcp_message.octets() {
 
@@ -135,20 +132,18 @@ impl RelayAgent {
                                 println!("*** sock.send_to {:?}", res);
                             }
                         } else {
-                            println!("*** Endode error");
+                            println!("! Endode error");
                         }
                     }
                     // Decode agent option and use the IP as a source interface to send broadcast back to client
                     BootpMessageType::BOOTREPLY => {
-                        println!("*** from server");
+                        println!("* Received BOOTREPLY");
 
                         if let Ok((buf, len)) = dhcp_message.octets() {
                             println!("len = {}", len);
                             println!("{:?}", &buf[..len as usize]);
 
-                            //let bcast = Ipv4Addr::new(255, 255, 255, 255);
                             let dst = SockaddrIn::new(255, 255, 255, 255, 68);
-
                             let iov = [IoSlice::new(&buf[..])];
                             //let fds = [fd];
                             let addr = in_addr {s_addr: 0xffffffff};
@@ -158,8 +153,7 @@ impl RelayAgent {
                             let res = sendmsg::<SockaddrIn>(fd, &iov, &[cmsg], MsgFlags::empty(), Some(&dst));
                             println!("{:?}", res);
                         } else {
-                            println!("*** Endode error");
-
+                            println!("! Endode error");
                         }
                     }
                 }

@@ -15,9 +15,9 @@ fn main() {
 
     let mut config = RelayConfig::new();
     let res = config.set_server("192.168.100.2");
-    println!("*** config.set_server {:?}", res);
 
     let agent = RelayAgent::new(config);
-
-    agent.start();
+    if let Err(err) = agent.start() {
+        println!("Stopped DHCP Relay: {:?}", err);
+    }
 }
