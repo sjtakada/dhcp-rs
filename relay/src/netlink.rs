@@ -15,9 +15,10 @@ use libc::c_int;
 use rtable::prefix::*;
 
 use crate::*;
+use crate::kernel::*;
 use crate::address_family::*;
 
-
+/*
 /// Kernel Link Abstraction - incorporated from reze-rs.
 pub struct KernelLink {
 
@@ -88,7 +89,7 @@ impl<T: Addressable> KernelAddr<T> {
         }
     }
 }
-
+*/
 
 const RTMGRP_LINK: libc::c_int = 1;
 const RTMGRP_IPV4_IFADDR: libc::c_int = 0x10;
@@ -377,7 +378,7 @@ pub struct Netlink {
     buf: RefCell<Buffer>,
 
     /// Kernel callback functions.
-    callback: RefCell<NetlinkKernelCallback>,
+    pub callback: RefCell<NetlinkKernelCallback>,
 }
 
 #[repr(C)]
@@ -674,9 +675,43 @@ impl Netlink {
         true
     }
 
+}
+
+impl KernelDriver for Netlink {
+
+    /// Register Add Link callback.
+    fn register_add_link(&self, f: Box<dyn Fn(KernelLink)>) {
+        self.callback.borrow_mut().add_link.replace(f);
+    }
+
+    /// Register Delete Link callback function.
+    fn register_delete_link(&self, f: Box<dyn Fn(KernelLink)>) {
+        self.callback.borrow_mut().delete_link.replace(f);
+    }
+
+    /// Register Add IPv4 Address callback function.
+    fn register_add_ipv4_address(&self, f: Box<dyn Fn(KernelAddr<Ipv4Addr>)>) {
+        self.callback.borrow_mut().add_ipv4_address.replace(f);
+    }
+
+    /// Register Delete IPv4 Address callback function.
+    fn register_delete_ipv4_address(&self, f: Box<dyn Fn(KernelAddr<Ipv4Addr>)>) {
+        self.callback.borrow_mut().delete_ipv4_address.replace(f);
+    }
+
+    /// Register Add IPv6 Address callback function.
+    fn register_add_ipv6_address(&self, f: Box<dyn Fn(KernelAddr<Ipv6Addr>)>) {
+        self.callback.borrow_mut().add_ipv6_address.replace(f);
+    }
+
+    /// Register Delete IPv6 Address callback function.
+    fn register_delete_ipv6_address(&self, f: Box<dyn Fn(KernelAddr<Ipv6Addr>)>) {
+        self.callback.borrow_mut().delete_ipv6_address.replace(f);
+    }
+
     /// Get all links from kernel.
-    pub fn get_link_all(&self) -> Result<(), DhcpError> {
-        println!("* Get all links from the kernel" );
+    fn get_link_all(&self) -> Result<(), DhcpError> {
+        println!("* Get all links from the kernel");
 
         if let Err(err) = self.send_request(libc::AF_PACKET, libc::RTM_GETLINK as i32) {
             //error!("Send request: RTM_GETLINK");
@@ -691,8 +726,8 @@ impl Netlink {
         Ok(())
     }
 
-    /// Get all addresses per Address Family from kernel.
-    pub fn get_address_all(&self) -> Result<(), DhcpError> {
+    /// Get all IPv4 addresses from kernel.
+    fn get_ipv4_address_all(&self) -> Result<(), DhcpError> {
         println!("* Get all IPv4 addresses from the kernel" );
 
         if let Err(err) = self.send_request(libc::AF_INET, libc::RTM_GETADDR as i32) {
@@ -707,5 +742,22 @@ impl Netlink {
 
         Ok(())
     }
+
+    /// Get all IPv6 addresses from system.
+    fn get_ipv6_address_all(&self) -> Result<(), DhcpError> {
+        Ok(())
+    }
+        
+
 }
 
+/// Public interface to get driver.
+pub fn get_driver() -> Option<Netlink> {
+    match Netlink::new() {
+	Ok(netlink) => Some(netlink),
+        Err(err) => {
+            println!("Failed to initlaize Netlink driver {}", err);
+            None
+        }
+    }
+}

@@ -2,6 +2,10 @@
 // DHCP-RS
 //   Copyright (C) 2024-2025, Toshiaki Takada
 //
+use std::rc::Rc;
+use std::cell::RefCell;
+//use std::cell::RefMut;
+use std::sync::Arc;
 use std::os::unix::io::AsRawFd;
 use std::net::UdpSocket;
 use std::net::SocketAddrV4;
@@ -28,6 +32,7 @@ use crate::*;
 use crate::message::*;
 use crate::config::*;
 use crate::netlink::*;
+use crate::kernel::*;
 
 /// Relay Agent.
 pub struct RelayAgent {
@@ -35,15 +40,24 @@ pub struct RelayAgent {
     /// Relay config.
     config: RelayConfig,
 
+/*
     /// Netlink interaface.
-    netlink: Netlink,
+    pub netlink: Netlink,
+*/
+    /// Kernel driver interface.
+    kernel: RefCell<Kernel>,
 }
 
 impl RelayAgent {
     pub fn new(config: RelayConfig) -> RelayAgent {
+/*
         let netlink = Netlink::new().unwrap();
 
         RelayAgent { config, netlink }
+*/
+
+        let kernel = RefCell::new(Kernel::new());
+        RelayAgent { config, kernel }
     }
 
     pub fn get_pktinfo_from_recvmsg(&self, res: RecvMsg<SockaddrIn>) -> Option<in_pktinfo> {
@@ -64,9 +78,34 @@ impl RelayAgent {
         None
     }
 
+    pub fn get_add_link(&self, kl: KernelLink) {
+        println!("*** get_add_link");
+       //
+    }
+
+    pub fn get_add_ipv4_address(&self, ka: KernelAddr<Ipv4Addr>) {
+        println!("*** get_add_ipv4_address");
+       //
+    }
+
+    pub fn init(agent: Rc<RelayAgent>) {
+        let clone = agent.clone();
+        agent.kernel.borrow_mut().driver().register_add_link(
+            Box::new(move |kl: KernelLink| {
+                clone.get_add_link(kl);
+            }));
+
+        let clone = agent.clone();
+        agent.kernel.borrow_mut().driver().register_add_ipv4_address(
+            Box::new(move |ka: KernelAddr<Ipv4Addr>| {
+                clone.get_add_ipv4_address(ka);
+            }));
+    }
+
     pub fn start(&self) -> Result<(), DhcpError> {
-        self.netlink.get_link_all();
-        self.netlink.get_address_all();
+        // Initialize Kernel interface.
+        self.kernel.borrow_mut().init();
+
 
         let sock = UdpSocket::bind("0.0.0.0:67")?;
         let fd = sock.as_raw_fd();

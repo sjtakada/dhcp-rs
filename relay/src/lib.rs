@@ -6,6 +6,7 @@
 
 pub mod address_family;
 pub mod netlink;
+pub mod kernel;
 pub mod encode;
 pub mod options;
 pub mod message;
