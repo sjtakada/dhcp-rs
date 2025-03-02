@@ -15,7 +15,7 @@ fn main() {
     // TBD: config, JSON or YAML?
 
     let mut config = RelayConfig::new();
-    let res = config.set_server("192.168.100.2");
+    let _res = config.set_server("192.168.100.2");
 
 
     let agent = Rc::new(RelayAgent::new(config));

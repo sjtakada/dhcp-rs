@@ -4,16 +4,14 @@
 //
 use std::rc::Rc;
 use std::cell::RefCell;
-//use std::cell::RefMut;
-use std::sync::Arc;
 use std::os::unix::io::AsRawFd;
 use std::net::UdpSocket;
 use std::net::SocketAddrV4;
 use std::io::IoSlice;
 use std::io::IoSliceMut;
+use std::collections::HashMap;
 
 use nix::cmsg_space;
-//use nix::sys::uio::*;
 use nix::sys::socket::recvmsg;
 use nix::sys::socket::sendmsg;
 use nix::sys::socket::setsockopt;
@@ -31,8 +29,25 @@ use libc::*;
 use crate::*;
 use crate::message::*;
 use crate::config::*;
-use crate::netlink::*;
 use crate::kernel::*;
+
+/// Collections of IPv4 and IPv6 connected addresses.
+pub struct Connected {
+    /// IPv4 addreses.
+    v4: Vec<Rc<KernelAddr<Ipv4Addr>>>,
+
+    /// IPv6 addresses.
+    v6: Vec<Rc<KernelAddr<Ipv6Addr>>>,
+}
+
+impl Connected {
+    pub fn new() -> Connected {
+        Connected {
+            v4: Vec::new(),
+            v6: Vec::new(),
+        }
+    }
+}
 
 /// Relay Agent.
 pub struct RelayAgent {
@@ -40,36 +55,44 @@ pub struct RelayAgent {
     /// Relay config.
     config: RelayConfig,
 
-/*
-    /// Netlink interaface.
-    pub netlink: Netlink,
-*/
     /// Kernel driver interface.
     kernel: RefCell<Kernel>,
+
+    /// Ifindex to KernelLink map.
+    index2link: RefCell<HashMap<i32, Rc<KernelLink>>>,
+
+    /// Name to KernelLink map.
+    name2link: RefCell<HashMap<String, Rc<KernelLink>>>,
+
+    /// Ifindex to Connected.
+    index2conn: RefCell<HashMap<i32, Connected>>,
+
+    /// IPv4 address to KernelAddress map.
+    ipv4addr2index: RefCell<HashMap<Ipv4Addr, i32>>,
 }
 
 impl RelayAgent {
     pub fn new(config: RelayConfig) -> RelayAgent {
-/*
-        let netlink = Netlink::new().unwrap();
-
-        RelayAgent { config, netlink }
-*/
-
-        let kernel = RefCell::new(Kernel::new());
-        RelayAgent { config, kernel }
+        RelayAgent {
+            config: config,
+            kernel: RefCell::new(Kernel::new()),
+            index2link: RefCell::new(HashMap::new()),
+            name2link: RefCell::new(HashMap::new()),
+            index2conn: RefCell::new(HashMap::new()),
+            ipv4addr2index: RefCell::new(HashMap::new()),
+        }
     }
 
+    /// Retrieve PKTINFO from a control message.
     pub fn get_pktinfo_from_recvmsg(&self, res: RecvMsg<SockaddrIn>) -> Option<in_pktinfo> {
-        //while let Ok(mut cmsg) = res.cmsgs() {
-        for mut cmsg in res.cmsgs() {
+        while let Ok(mut cmsg) = res.cmsgs() {
             if let Some(item) = cmsg.next() {
                 match item {
                     ControlMessageOwned::Ipv4PacketInfo(info) => {
                         return Some(info)
                     }
                     _ => {
-                        // placeholder
+                        println!("!!! Unknown ControlMessage {:?}", item);
                     }
                 }
             }
@@ -78,16 +101,40 @@ impl RelayAgent {
         None
     }
 
+    /// Add a link to agent.
     pub fn get_add_link(&self, kl: KernelLink) {
-        println!("*** get_add_link");
-       //
+        let ifindex = kl.ifindex;
+        let name = kl.name.clone();
+        let kl = Rc::new(kl);
+
+        self.index2link.borrow_mut().insert(ifindex, kl.clone());
+        self.name2link.borrow_mut().insert(name, kl.clone());
     }
 
+    /// Add an IPv4 address to agent.
     pub fn get_add_ipv4_address(&self, ka: KernelAddr<Ipv4Addr>) {
-        println!("*** get_add_ipv4_address");
-       //
+        let ifindex = ka.ifindex;
+        let address = ka.address.address().clone();
+        let ka = Rc::new(ka);
+
+        if !self.index2conn.borrow().contains_key(&ifindex) {
+            let conn = Connected::new();
+            self.index2conn.borrow_mut().insert(ifindex, conn);
+        };
+
+        let mut binding = self.index2conn.borrow_mut();
+        let conn = binding.get_mut(&ifindex).unwrap();
+        conn.v4.push(ka);
+
+        self.ipv4addr2index.borrow_mut().insert(address, ifindex);
     }
 
+    /// Add an IPv6 address to agent.
+    pub fn get_add_ipv6_address(&self, _ka: KernelAddr<Ipv6Addr>) {
+        // TBD
+    }
+
+    /// Initialize Agent's kernel callbacks.
     pub fn init(agent: Rc<RelayAgent>) {
         let clone = agent.clone();
         agent.kernel.borrow_mut().driver().register_add_link(
@@ -99,6 +146,12 @@ impl RelayAgent {
         agent.kernel.borrow_mut().driver().register_add_ipv4_address(
             Box::new(move |ka: KernelAddr<Ipv4Addr>| {
                 clone.get_add_ipv4_address(ka);
+            }));
+
+        let clone = agent.clone();
+        agent.kernel.borrow_mut().driver().register_add_ipv6_address(
+            Box::new(move |ka: KernelAddr<Ipv6Addr>| {
+                clone.get_add_ipv6_address(ka);
             }));
     }
 
@@ -128,7 +181,7 @@ impl RelayAgent {
             let mut iov = [IoSliceMut::new(&mut buf)];
             let res: RecvMsg<SockaddrIn> = recvmsg(fd, &mut iov, Some(&mut cmsg), MsgFlags::empty()).unwrap();
 
-            println!("Received request res {:?}", res);
+            println!("Received request {:?}", res);
             //println!("Received request: size {:?}, address {:?}, flags {:?}", result.bytes, result.address, result.flags);
 
             let pktinfo = match self.get_pktinfo_from_recvmsg(res) {
@@ -143,7 +196,7 @@ impl RelayAgent {
             let ifindex = pktinfo.ipi_ifindex;
 
             if let Ok(mut dhcp_message) = DhcpMessage::new_from(&iov[0][..]) {
-                println!("{:?}", dhcp_message);
+                println!("* {:?}", dhcp_message);
 
                 //for option in dhcp_message.options {
                 //    
@@ -162,8 +215,8 @@ impl RelayAgent {
 
                         if let Ok((buf, len)) = dhcp_message.octets() {
 
-                            println!("len = {}", len);
-                            println!("{:?}", &buf[..len as usize]);
+                            println!("* len = {}", len);
+                            //println!("{:?}", &buf[..len as usize]);
 
                             for &server in self.config.get_servers() {
                                 let dst = SocketAddrV4::new(server, 67);
@@ -179,8 +232,8 @@ impl RelayAgent {
                         println!("* Received BOOTREPLY");
 
                         if let Ok((buf, len)) = dhcp_message.octets() {
-                            println!("len = {}", len);
-                            println!("{:?}", &buf[..len as usize]);
+                            println!("* len = {}", len);
+                            //println!("{:?}", &buf[..len as usize]);
 
                             let dst = SockaddrIn::new(255, 255, 255, 255, 68);
                             let iov = [IoSlice::new(&buf[..])];

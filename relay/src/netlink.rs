@@ -566,7 +566,7 @@ impl Netlink {
         Ok(())
     }
 
-    fn parse_dummy(&self, h: &Nlmsghdr, _ifi: &NlDummy, _attr: &AttrMap) -> bool {
+    fn parse_dummy(&self, _h: &Nlmsghdr, _ifi: &NlDummy, _attr: &AttrMap) -> bool {
         //debug!("Nlmsg type {}", h.nlmsg_type);
         true
     }
@@ -580,7 +580,7 @@ impl Netlink {
                 [hwaddr[0], hwaddr[1], hwaddr[2], hwaddr[3], hwaddr[4], hwaddr[5]]
             },
             Some(hwaddr) => {
-                //error!("Invalid hwaddr length {}", hwaddr.len());
+                println!("!!! Invalid hwaddr length {}", hwaddr.len());
                 [0, 0, 0, 0, 0, 0]
             },
             None => {
@@ -667,7 +667,7 @@ impl Netlink {
                 kc.call_delete_ipv6_address(ka);
             }
             _ => {
-                //error!("Invalid family or message type");
+                println!("!!! Invalid family or message type");
                 return false
             }
         }
@@ -713,12 +713,12 @@ impl KernelDriver for Netlink {
     fn get_link_all(&self) -> Result<(), DhcpError> {
         println!("* Get all links from the kernel");
 
-        if let Err(err) = self.send_request(libc::AF_PACKET, libc::RTM_GETLINK as i32) {
+        if let Err(_err) = self.send_request(libc::AF_PACKET, libc::RTM_GETLINK as i32) {
             //error!("Send request: RTM_GETLINK");
             return Err(DhcpError::NetlinkError/*::Link(err.to_string())*/)
         }
 
-        if let Err(err) = self.parse_info(&Netlink::parse_interface) {
+        if let Err(_err) = self.parse_info(&Netlink::parse_interface) {
             //error!("Parse info: RTM_GETLINK");
             return Err(DhcpError::NetlinkError/*::Link(err.to_string())*/)
         }
@@ -730,12 +730,12 @@ impl KernelDriver for Netlink {
     fn get_ipv4_address_all(&self) -> Result<(), DhcpError> {
         println!("* Get all IPv4 addresses from the kernel" );
 
-        if let Err(err) = self.send_request(libc::AF_INET, libc::RTM_GETADDR as i32) {
+        if let Err(_err) = self.send_request(libc::AF_INET, libc::RTM_GETADDR as i32) {
             //error!("Send request: RTM_GETADDR");
             return Err(DhcpError::NetlinkError/*::Address(err.to_string())*/)
         }
 
-        if let Err(err) = self.parse_info(&Netlink::parse_interface_address::<Ipv4Addr>) {
+        if let Err(_err) = self.parse_info(&Netlink::parse_interface_address::<Ipv4Addr>) {
             //error!("Parse info: RTM_GETADDR");
             return Err(DhcpError::NetlinkError/*::Address(err.to_string())*/)
         }
