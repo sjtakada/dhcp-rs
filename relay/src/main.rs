@@ -3,20 +3,26 @@
 //   Copyright (C) 2024-2025, Toshiaki Takada
 //
 
+use std::env;
 use std::rc::Rc;
+use std::fs;
 
 use relay::agent::*;
 use relay::config::*;
 
+/// Program main.
 fn main() {
-    println!("Starting DHCP Relay");
+    let args: Vec<String> = env::args().collect();
+    println!("* Starting DHCP Relay");
+    let config_file = if args.len() < 2 {
+        "config.json"
+    } else {
+        &args[1]
+    };
 
-    // TBD: command line options
-    // TBD: config, JSON or YAML?
-
-    let mut config = RelayConfig::new();
-    let _res = config.set_server("192.168.100.2");
-
+    let json_data: String = fs::read_to_string(config_file).unwrap();
+    let config: Config = serde_json::from_str(&json_data).expect("! JSON data error");
+    println!("* Read config from {} {:?}", config_file, config);
 
     let agent = Rc::new(RelayAgent::new(config));
     RelayAgent::init(agent.clone());

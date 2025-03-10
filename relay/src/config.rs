@@ -3,38 +3,41 @@
 //   Copyright (C) 2024-2025, Toshiaki Takada
 //
 
-use std::net::Ipv4Addr;
-use std::net::AddrParseError;
+use std::collections::HashMap;
+use serde::Deserialize;
 
-/// Relay Agent config.
-pub struct RelayConfig {
-    /// List of interfaces to listen to DHCP packets.
-    interfaces: Vec<String>,
-
-    /// DHCP Servers.
-    servers: Vec<Ipv4Addr>,
+#[derive(Debug, Deserialize)]
+pub struct Config {
+    pub config_global: ConfigGlobal,
+    pub config_vrf: HashMap<String, ConfigVrf>,
 }
 
-impl RelayConfig {
-    pub fn new() -> RelayConfig {
-        RelayConfig {
-            interfaces: Vec::new(),
-            servers: Vec::new(),
-        }
-    }
+#[derive(Debug, Deserialize)]
+pub struct ConfigGlobal {
+    pub smart_relay: ConfigSmartRelay,
+    pub debug: bool,
+}
 
-    pub fn set_interface(&mut self, name: &str) {
-        self.interfaces.push(name.to_string());
-    }
+#[derive(Debug, Deserialize)]
+pub struct ConfigSmartRelay {
+    pub enabled: bool,
+    pub retry_count: u8,
+}
 
-    pub fn set_server(&mut self, addr_str: &str) -> Result<(), AddrParseError> {
-        let addr: Ipv4Addr = addr_str.parse()?;
+#[derive(Debug, Deserialize)]
+pub struct ConfigVrf {
+    pub interfaces: ConfigInterface,
+    pub dhcp_servers: ConfigDhcpServers,
+}
 
-        self.servers.push(addr);
-        Ok(())
-    }
+#[derive(Debug, Deserialize)]
+pub struct ConfigInterface {
+    pub downstream: Vec<String>,
+    pub upstream: Vec<String>,
+}
 
-    pub fn get_servers(&self) -> &Vec<Ipv4Addr> {
-        &self.servers
-    }
+#[derive(Debug, Deserialize)]
+pub struct ConfigDhcpServers {
+    pub ipv4addr: Vec<String>,
+    pub ipv6addr: Vec<String>,
 }

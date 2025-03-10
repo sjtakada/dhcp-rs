@@ -53,7 +53,7 @@ impl Connected {
 pub struct RelayAgent {
 
     /// Relay config.
-    config: RelayConfig,
+    config: Config,
 
     /// Kernel driver interface.
     kernel: RefCell<Kernel>,
@@ -72,7 +72,7 @@ pub struct RelayAgent {
 }
 
 impl RelayAgent {
-    pub fn new(config: RelayConfig) -> RelayAgent {
+    pub fn new(config: Config) -> RelayAgent {
         RelayAgent {
             config: config,
             kernel: RefCell::new(Kernel::new()),
@@ -159,7 +159,6 @@ impl RelayAgent {
         // Initialize Kernel interface.
         self.kernel.borrow_mut().init();
 
-
         let sock = UdpSocket::bind("0.0.0.0:67")?;
         let fd = sock.as_raw_fd();
         let mut cmsg = cmsg_space!(in_pktinfo);
@@ -181,8 +180,7 @@ impl RelayAgent {
             let mut iov = [IoSliceMut::new(&mut buf)];
             let res: RecvMsg<SockaddrIn> = recvmsg(fd, &mut iov, Some(&mut cmsg), MsgFlags::empty()).unwrap();
 
-            println!("Received request {:?}", res);
-            //println!("Received request: size {:?}, address {:?}, flags {:?}", result.bytes, result.address, result.flags);
+            println!("* Received request {:?}", res);
 
             let pktinfo = match self.get_pktinfo_from_recvmsg(res) {
                 Some(pktinfo) => pktinfo,
@@ -195,8 +193,18 @@ impl RelayAgent {
             let dst_ip = Ipv4Addr::from(ntohl(pktinfo.ipi_spec_dst.s_addr));
             let ifindex = pktinfo.ipi_ifindex;
 
+            // TBD: identify VRF through the received interface.
+            let vrf = "default";
+            let config_vrf = match self.config.config_vrf.get(vrf) {
+                Some(config_vrf) => config_vrf,
+                None => {
+                    println!("! No config exists for {}", vrf);
+                    continue;
+                }
+            };
+
             if let Ok(mut dhcp_message) = DhcpMessage::new_from(&iov[0][..]) {
-                println!("* {:?}", dhcp_message);
+                println!("*** {:?}", dhcp_message);
 
                 //for option in dhcp_message.options {
                 //    
@@ -214,12 +222,20 @@ impl RelayAgent {
                         dhcp_message.giaddr = dst_ip;
 
                         if let Ok((buf, len)) = dhcp_message.octets() {
-
-                            println!("* len = {}", len);
+                            println!("*** DHCP message len: {}", len);
                             //println!("{:?}", &buf[..len as usize]);
 
-                            for &server in self.config.get_servers() {
-                                let dst = SocketAddrV4::new(server, 67);
+                            //for &server in self.config.get_servers() {
+                            for server in &config_vrf.dhcp_servers.ipv4addr {
+                                let server_addr = match server.parse::<Ipv4Addr>() {
+                                    Ok(addr) => addr,
+                                    Err(_) => {
+                                        println!("! Invalid IP address in config {}", server);
+                                        continue;
+                                    }
+                                };
+
+                                let dst = SocketAddrV4::new(server_addr, 67);
                                 let res = sock.send_to(&buf[..len as usize], dst);
                                 println!("*** sock.send_to {:?}", res);
                             }
@@ -232,7 +248,7 @@ impl RelayAgent {
                         println!("* Received BOOTREPLY");
 
                         if let Ok((buf, len)) = dhcp_message.octets() {
-                            println!("* len = {}", len);
+                            println!("*** DHCP message len: {}", len);
                             //println!("{:?}", &buf[..len as usize]);
 
                             let dst = SockaddrIn::new(255, 255, 255, 255, 68);

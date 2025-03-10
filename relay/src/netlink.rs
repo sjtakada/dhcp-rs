@@ -605,7 +605,7 @@ impl Netlink {
             None => "(Unknown)"
         };
 
-        println!("parse_interface() {} {} {} {:?} {}",
+        println!("*** parse_interface() {} {} {} {:?} {}",
                  ifindex, ifname, ifi.ifi_type, hwaddr, mtu);
 
         // Callback to add Link.
@@ -650,6 +650,8 @@ impl Netlink {
                 let prefix = Prefix::<Ipv4Addr>::from_slice(address.unwrap(), ifa.ifa_prefixlen);
                 let ka = KernelAddr::<Ipv4Addr>::new(index, prefix, None, false, false, None);
                 kc.call_add_ipv4_address(ka);
+
+                println!("*** parse_interface_address() {} Ipv4Addr {:?}", index, prefix);
             }
             (libc::AF_INET, libc::RTM_DELADDR) => {
                 let prefix = Prefix::<Ipv4Addr>::from_slice(address.unwrap(), ifa.ifa_prefixlen);
@@ -660,6 +662,8 @@ impl Netlink {
                 let prefix = Prefix::<Ipv6Addr>::from_slice(address.unwrap(), ifa.ifa_prefixlen);
                 let ka = KernelAddr::<Ipv6Addr>::new(index, prefix, None, false, false, None);
                 kc.call_add_ipv6_address(ka);
+
+                println!("*** parse_interface_address() {} Ipv6Addr {:?}", index, prefix);
             }
             (libc::AF_INET6, libc::RTM_DELADDR) => {
                 let prefix = Prefix::<Ipv6Addr>::from_slice(address.unwrap(), ifa.ifa_prefixlen);

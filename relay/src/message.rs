@@ -83,11 +83,7 @@ fn u8_to_string(s: &[u8]) -> String {
 
 impl fmt::Debug for DhcpMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "op: {:?}, htype: {}, hlen: {}, hops: {}, 
-xid: {:#8x}, secs: {}, flags: {:#x}, 
-ciaddr: {}, yiaddr: {}, siaddr: {}, giaddr: {}, 
-chaddr: {}, sname: {}, file: {},
-options: {:?}",
+        write!(f, "op: {:?}, htype: {}, hlen: {}, hops: {}, xid: {:#8x}, secs: {}, flags: {:#x}, ciaddr: {}, yiaddr: {}, siaddr: {}, giaddr: {}, chaddr: {}, sname: {}, file: {}, options: {:?}",
                self.op, self.htype, self.hlen, self.hops, self.xid, self.secs, self.flags,
                self.ciaddr, self.yiaddr, self.siaddr, self.giaddr, chaddr_str(self.hlen, &self.chaddr),
                u8_to_string(&self.sname), u8_to_string(&self.file), &self.options)
