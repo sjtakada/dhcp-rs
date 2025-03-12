@@ -11,6 +11,7 @@ use crate::encode::*;
 
 /// DHCP Option header length.
 const DHCP_OPTION_HLEN: usize = 2;
+const DHCP_SUBOPTION_HLEN: usize = 2;
 
 // Utility to decode u8 value as bool for a DHCP option.
 pub fn option_bool(buf: &[u8]) -> Result<(usize, bool), DhcpError> {
@@ -353,7 +354,7 @@ pub fn option_client_fqdn(buf: &[u8]) -> Result<(usize, ClientFQDN), DhcpError> 
 // Utility to decode a Relay Agent Information DHCP option.
 pub fn option_relay_agent_info(buf: &[u8]) -> Result<(usize, RelayAgentInformation), DhcpError> {
     // The buf must have at least 2 bytes.
-    if buf.len() < DHCP_OPTION_HLEN + 2 {
+    if buf.len() < DHCP_OPTION_HLEN + DHCP_SUBOPTION_HLEN {
         Err(DhcpError::InsufficientBufferSize)
     } else {
         let len = buf[1] as usize;
@@ -364,20 +365,23 @@ pub fn option_relay_agent_info(buf: &[u8]) -> Result<(usize, RelayAgentInformati
             let mut circuit_id = None;
             let mut remote_id = None;
 
-            let mut sb = &b[2..len];
-            while sb.len() > 0 {
+            let mut sb = &b[..len];
+            while sb.len() >= DHCP_SUBOPTION_HLEN {
                 let t = sb[0];
                 let l = sb[1] as usize;
+                if l + DHCP_SUBOPTION_HLEN > sb.len() {
+                    return Err(DhcpError::DecodeError)
+                }
                 match t {
                     x if x == DhcpAgentSubOptionCode::CircuitID as u8 => {
-                        circuit_id = Some(sb[2..l].to_vec());
+                        circuit_id = Some(sb[DHCP_SUBOPTION_HLEN..DHCP_SUBOPTION_HLEN + l].to_vec());
                     }
                     x if x == DhcpAgentSubOptionCode::RemoteID as u8 => {
-                        remote_id = Some(sb[2..l].to_vec());
+                        remote_id = Some(sb[DHCP_SUBOPTION_HLEN..DHCP_SUBOPTION_HLEN + l].to_vec());
                     }
                     _ => return Err(DhcpError::DecodeError),
                 }
-                sb = &sb[2 + l..];
+                sb = &sb[DHCP_SUBOPTION_HLEN + l..];
             }
 
             Ok((DHCP_OPTION_HLEN + len, RelayAgentInformation { circuit_id, remote_id }))

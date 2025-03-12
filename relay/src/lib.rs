@@ -443,7 +443,6 @@ pub enum DhcpAgentSubOptionCode {
     RemoteID = 2,
 }
 
-
 /// DHCP Client Id for Option 61.
 #[derive(Debug)]
 pub struct DhcpClientId {
@@ -479,6 +478,24 @@ pub struct ClientFQDN {
 pub struct RelayAgentInformation {
     circuit_id: Option<Vec<u8>>,
     remote_id: Option<Vec<u8>>,
+}
+
+impl RelayAgentInformation {
+    pub fn from(circuit_id: Option<&str>, remote_id: Option<&str>) -> RelayAgentInformation {
+        let circuit_id = match circuit_id {
+            Some(circuit_id) => Some(circuit_id.as_bytes().to_vec()),
+            None => None,
+        };
+        let remote_id = match remote_id {
+            Some(remote_id) => Some(remote_id.as_bytes().to_vec()),
+            None => None,
+        };
+
+        RelayAgentInformation {
+            circuit_id,
+            remote_id,
+        }
+    }
 }
 
 /// DHCP option.

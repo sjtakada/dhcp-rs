@@ -866,10 +866,26 @@ impl DhcpMessage {
                 //DhcpOption::RebindingTime(_v) => {}
                 //DhcpOption::VendorClassId(_v) => {}
                 //DhcpOption::ClientId(_v) => {}
-                //DhcpOption:: => {}
-                DhcpOption::RelayAgentInformation(_v) => {
-                    Ok(0)
+                DhcpOption::RelayAgentInformation(rai) => {
+                    encode_option(&mut buf[len..], DhcpOptionCode::RelayAgentInformation as u8,
+                                  |b: &mut [u8]| {
+                                      let mut len = 0;
+                                      let mut b = &mut b[..];
+                                      if let Some(circuit_id) = &rai.circuit_id {
+                                          b[0] = DhcpAgentSubOptionCode::CircuitID as u8;
+                                          b[1] = circuit_id.len() as u8;
+                                          len += 2 + encode_data(&mut b[2..], circuit_id.as_ref()).unwrap();
+                                      }
+                                      b = &mut b[len..];
+                                      if let Some(remote_id) = &rai.remote_id {
+                                          b[0] = DhcpAgentSubOptionCode::RemoteID as u8;
+                                          b[1] = remote_id.len() as u8;
+                                          len += 2 + encode_data(&mut b[2..], remote_id.as_ref()).unwrap();
+                                      }
+                                      Ok(len)
+                                  })
                 }
+                //DhcpOption:: => {}
                 _ => {
                     Err(DhcpError::EncodeError)
                 }
