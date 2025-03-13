@@ -170,28 +170,33 @@ impl RelayAgent {
         let rai = RelayAgentInformation::from(Some(circuit_id), Some(remote_id));
         dhcp_message.options.push(DhcpOption::RelayAgentInformation(rai));
 
-        if let Ok((buf, len)) = dhcp_message.octets() {
-            println!("*** DHCP message len: {}", len);
+        let (buf, len) = dhcp_message.octets()?;
+        println!("*** DHCP message len: {}", len);
 
-            if let Some(ipv4addr) = &config_vrf.dhcp_servers.ipv4addr {
-                for server in ipv4addr {
-                    let server_addr = match server.parse::<Ipv4Addr>() {
-                        Ok(addr) => addr,
-                        Err(_) => {
-                            println!("!!! Invalid IP address in config {}", server);
-                            continue;
-                        }
-                    };
+        let mut count = 0;
+        if let Some(ipv4addr) = &config_vrf.dhcp_servers.ipv4addr {
+            for server in ipv4addr {
+                let server_addr = match server.parse::<Ipv4Addr>() {
+                    Ok(addr) => addr,
+                    Err(_) => {
+                        println!("!!! Invalid IP address in config {}", server);
+                        continue;
+                    }
+                };
 
-                    let dst = SocketAddrV4::new(server_addr, 67);
-                    let _result = sock.send_to(&buf[..len as usize], dst);
-                    
+                let dst = SocketAddrV4::new(server_addr, 67);
+                let result = sock.send_to(&buf[..len as usize], dst);
+                match result {
+                    Ok(_) => {
+                        println!("* Relayed BOOTREQUEST packet to {:?}", server_addr);
+                        count += 1;
+                    }
+                    Err(err) => println!("!!! Error: {:?}", err),
                 }
             }
-            Ok(0)
-        } else {
-            Err(DhcpError::EncodeError)
         }
+
+        Ok(count)
     }
 
     pub fn handle_boot_reply(&self, mut dhcp_message: DhcpMessage,
@@ -213,23 +218,22 @@ impl RelayAgent {
             dhcp_message.options.remove(index);
         }
 
-        if let Ok((buf, len)) = dhcp_message.octets() {
-            println!("*** DHCP message len: {}", len);
-            //println!("{:?}", &buf[..len as usize]);
+        let (buf, len) = dhcp_message.octets()?;
+        println!("*** DHCP message len: {}", len);
+        //println!("{:?}", &buf[..len as usize]);
 
-            let dst = SockaddrIn::new(255, 255, 255, 255, 68);
-            let iov = [IoSlice::new(&buf[..])];
-            //let fds = [fd];
-            let addr = in_addr {s_addr: 0xffffffff};
-            let ipi = in_pktinfo { ipi_ifindex: ds_ifindex, ipi_spec_dst: in_addr { s_addr: 0 }, ipi_addr: addr };
-            let cmsg = ControlMessage::Ipv4PacketInfo(&ipi);
+        let dst = SockaddrIn::new(255, 255, 255, 255, 68);
+        let iov = [IoSlice::new(&buf[..])];
+        let addr = in_addr {s_addr: 0xffffffff};
+        let ipi = in_pktinfo { ipi_ifindex: ds_ifindex, ipi_spec_dst: in_addr { s_addr: 0 }, ipi_addr: addr };
+        let cmsg = ControlMessage::Ipv4PacketInfo(&ipi);
 
-            match sendmsg::<SockaddrIn>(fd, &iov, &[cmsg], MsgFlags::empty(), Some(&dst)) {
-                Ok(len) => Ok(len),
-                Err(_errno) => Err(DhcpError::UnknownError), //TBD
+        match sendmsg::<SockaddrIn>(fd, &iov, &[cmsg], MsgFlags::empty(), Some(&dst)) {
+            Ok(len) => {
+                println!("* Relayed BOOTREPLY packet {:?}", len);
+                Ok(1)
             }
-        } else {
-            Err(DhcpError::EncodeError)
+            Err(_errno) => Err(DhcpError::IoError(std::io::Error::last_os_error())),
         }
     }
 
@@ -301,14 +305,13 @@ impl RelayAgent {
                         }
                     };
 
-                    match result {
-                        Ok(len) => println!("* Relayed packet {:?}", len),
-                        Err(err) => println!("!!! Error: {:?}", err),
+                    if let Err(err) = result {
+                        println!("!!! Error: {:?}", err);
                     }
                 }
                 // Most likely decode error.
                 Err(err) => {
-                    println!("!!! {:?}", err);
+                    println!("!!! Error: {:?}", err);
                 }
             }
         }
