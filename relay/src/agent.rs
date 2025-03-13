@@ -155,6 +155,84 @@ impl RelayAgent {
             }));
     }
 
+    pub fn handle_boot_request(&self, mut dhcp_message: DhcpMessage,
+                               config_vrf: &ConfigVrf,
+                               sock: &UdpSocket, _fd: i32,
+                               agent_ip: Ipv4Addr) -> Result<usize, DhcpError> {
+        println!("* Handle BOOTREQUEST");
+
+        // TBD. Check if giaddr is set or not.
+        dhcp_message.giaddr = agent_ip;
+
+        // TBD, Add Relay Agent Information.
+        let circuit_id = "hogehoge";
+        let remote_id = "0a:0b:0c:0d:0e:0f";
+        let rai = RelayAgentInformation::from(Some(circuit_id), Some(remote_id));
+        dhcp_message.options.push(DhcpOption::RelayAgentInformation(rai));
+
+        if let Ok((buf, len)) = dhcp_message.octets() {
+            println!("*** DHCP message len: {}", len);
+
+            if let Some(ipv4addr) = &config_vrf.dhcp_servers.ipv4addr {
+                for server in ipv4addr {
+                    let server_addr = match server.parse::<Ipv4Addr>() {
+                        Ok(addr) => addr,
+                        Err(_) => {
+                            println!("!!! Invalid IP address in config {}", server);
+                            continue;
+                        }
+                    };
+
+                    let dst = SocketAddrV4::new(server_addr, 67);
+                    let _result = sock.send_to(&buf[..len as usize], dst);
+                    
+                }
+            }
+            Ok(0)
+        } else {
+            Err(DhcpError::EncodeError)
+        }
+    }
+
+    pub fn handle_boot_reply(&self, mut dhcp_message: DhcpMessage,
+                             _config_vrf: &ConfigVrf,
+                             _sock: &UdpSocket, fd: i32,
+                             ds_ifindex: i32) -> Result<usize, DhcpError> {
+        println!("* Handle BOOTREPLY");
+
+        // TBD, if giaddr is set or not.
+        dhcp_message.giaddr = Ipv4Addr::new(0, 0, 0, 0);
+
+        // Strip Relay Agent Information if present.
+        if let Some(index) = dhcp_message.options.iter().position(|x| {
+            match *x {
+                DhcpOption::RelayAgentInformation(_) => true,
+                _ => false,
+            }
+        }) {
+            dhcp_message.options.remove(index);
+        }
+
+        if let Ok((buf, len)) = dhcp_message.octets() {
+            println!("*** DHCP message len: {}", len);
+            //println!("{:?}", &buf[..len as usize]);
+
+            let dst = SockaddrIn::new(255, 255, 255, 255, 68);
+            let iov = [IoSlice::new(&buf[..])];
+            //let fds = [fd];
+            let addr = in_addr {s_addr: 0xffffffff};
+            let ipi = in_pktinfo { ipi_ifindex: ds_ifindex, ipi_spec_dst: in_addr { s_addr: 0 }, ipi_addr: addr };
+            let cmsg = ControlMessage::Ipv4PacketInfo(&ipi);
+
+            match sendmsg::<SockaddrIn>(fd, &iov, &[cmsg], MsgFlags::empty(), Some(&dst)) {
+                Ok(len) => Ok(len),
+                Err(_errno) => Err(DhcpError::UnknownError), //TBD
+            }
+        } else {
+            Err(DhcpError::EncodeError)
+        }
+    }
+
     pub fn start(&self) -> Result<(), DhcpError> {
         // Initialize Kernel interface.
         self.kernel.borrow_mut().init();
@@ -178,14 +256,14 @@ impl RelayAgent {
         loop {
             let mut buf: &mut [u8] = &mut [0; 2048];
             let mut iov = [IoSliceMut::new(&mut buf)];
-            let res: RecvMsg<SockaddrIn> = recvmsg(fd, &mut iov, Some(&mut cmsg), MsgFlags::empty()).unwrap();
+            let res: RecvMsg<SockaddrIn> = recvmsg(fd, &mut iov, Some(&mut cmsg), MsgFlags::empty()).unwrap();  // TBD
 
             println!("* Received {:?}", res);
             let bytes = res.bytes;
             let pktinfo = match self.get_pktinfo_from_recvmsg(res) {
                 Some(pktinfo) => pktinfo,
                 None => {
-                    println!("Failed to retrieve IP_PKTINFO");
+                    println!("!!! Failed to retrieve IP_PKTINFO");
                     continue;
                 }
             };
@@ -198,98 +276,39 @@ impl RelayAgent {
             let config_vrf = match self.config.vrf.get(vrf) {
                 Some(config_vrf) => config_vrf,
                 None => {
-                    println!("! No config exists for {}", vrf);
+                    println!("!!! No config exists for {}", vrf);
                     continue;
                 }
             };
 
             // Decode BOOTP/DHCP frame.
             match DhcpMessage::new_from(&iov[0][..bytes]) {
-                Err(err) => {
-                    println!("! {:?}", err);
-                }
-                Ok(mut dhcp_message) => {
-                    if let Ok(mut dhcp_message) = DhcpMessage::new_from(&iov[0][..]) {
-                        println!("*** {:?}", dhcp_message);
+                // Extract DHCP message.
+                Ok(dhcp_message) => {
+                    println!("*** {:?}", dhcp_message);
 
-                        match dhcp_message.op {
-                            // XXX remember received interface and IP address
-                            // and put it in agent option
-                            BootpMessageType::BOOTREQUEST => {
-                                println!("* Received BOOTREQUEST");
-
-                                // record downstream ifindex for later use.
-                                ds_ifindex = ifindex;
-
-                                // TBD. Check if giaddr is set or not.
-                                dhcp_message.giaddr = dst_ip;
-
-                                // TBD, Add Relay Agent Information.
-                                let circuit_id = "hogehoge";
-                                let remote_id = "0a:0b:0c:0d:0e:0f";
-                                let rai = RelayAgentInformation::from(Some(circuit_id), Some(remote_id));
-                                dhcp_message.options.push(DhcpOption::RelayAgentInformation(rai));
-
-                                if let Ok((buf, len)) = dhcp_message.octets() {
-                                    println!("*** DHCP message len: {}", len);
-                                    //println!("{:?}", &buf[..len as usize]);
-
-                                    //for &server in self.config.get_servers() {
-                                    if let Some(ipv4addr) = &config_vrf.dhcp_servers.ipv4addr {
-                                        for server in ipv4addr {
-                                            let server_addr = match server.parse::<Ipv4Addr>() {
-                                                Ok(addr) => addr,
-                                                Err(_) => {
-                                                    println!("! Invalid IP address in config {}", server);
-                                                    continue;
-                                                }
-                                            };
-
-                                            let dst = SocketAddrV4::new(server_addr, 67);
-                                            let res = sock.send_to(&buf[..len as usize], dst);
-                                            println!("*** sock.send_to {:?}", res);
-                                        }
-                                    }
-                                } else {
-                                    println!("! Endode error");
-                                }
-                            }
-                            // Decode agent option and use the IP as a source interface to send broadcast back to client
-                            BootpMessageType::BOOTREPLY => {
-                                println!("* Received BOOTREPLY");
-
-                                // TBD, if giaddr is set or not.
-                                dhcp_message.giaddr = Ipv4Addr::new(0, 0, 0, 0);
-
-                                // Strip Relay Agent Information if present.
-                                if let Some(index) = dhcp_message.options.iter().position(|x| {
-                                    match *x {
-                                        DhcpOption::RelayAgentInformation(_) => true,
-                                        _ => false,
-                                    }
-                                }) {
-                                    dhcp_message.options.remove(index);
-                                }
-
-                                if let Ok((buf, len)) = dhcp_message.octets() {
-                                    println!("*** DHCP message len: {}", len);
-                                    //println!("{:?}", &buf[..len as usize]);
-
-                                    let dst = SockaddrIn::new(255, 255, 255, 255, 68);
-                                    let iov = [IoSlice::new(&buf[..])];
-                                    //let fds = [fd];
-                                    let addr = in_addr {s_addr: 0xffffffff};
-                                    let ipi = in_pktinfo { ipi_ifindex: ds_ifindex, ipi_spec_dst: in_addr { s_addr: 0 }, ipi_addr: addr };
-                                    let cmsg = ControlMessage::Ipv4PacketInfo(&ipi);
-
-                                    let res = sendmsg::<SockaddrIn>(fd, &iov, &[cmsg], MsgFlags::empty(), Some(&dst));
-                                    println!("{:?}", res);
-                                } else {
-                                    println!("! Endode error");
-                                }
-                            }
+                    let result = match dhcp_message.op {
+                        // XXX remember received interface and IP address
+                        // and put it in agent option
+                        BootpMessageType::BOOTREQUEST => {
+                            // record downstream ifindex for later use.
+                            ds_ifindex = ifindex;
+                            self.handle_boot_request(dhcp_message, config_vrf, &sock, fd, dst_ip)
                         }
+                        // Decode agent option and use the IP as a source interface to send broadcast back to client
+                        BootpMessageType::BOOTREPLY => {
+                            self.handle_boot_reply(dhcp_message, config_vrf, &sock, fd, ds_ifindex)
+                        }
+                    };
+
+                    match result {
+                        Ok(len) => println!("* Relayed packet {:?}", len),
+                        Err(err) => println!("!!! Error: {:?}", err),
                     }
+                }
+                // Most likely decode error.
+                Err(err) => {
+                    println!("!!! {:?}", err);
                 }
             }
         }

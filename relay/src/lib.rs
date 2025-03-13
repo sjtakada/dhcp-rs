@@ -46,6 +46,8 @@ pub enum DhcpError {
     IoError(#[from] std::io::Error),
     #[error("Netlink error")]
     NetlinkError,
+    #[error("Config error")]
+    ConfigError,
     #[error("Unknown error")]
     UnknownError,
 }
