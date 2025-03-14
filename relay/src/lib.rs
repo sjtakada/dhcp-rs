@@ -28,24 +28,24 @@ pub enum DhcpError {
     //InvalidHardwareType,
     //#[error("TBD")]
     //InvalidHardwareLen,
-    #[error("Insuffcient buffer size")]
-    InsufficientBufferSize,
+    #[error("Insuffcient buffer size {0}")]
+    InsufficientBufferSize(String),
     #[error("Unkown Option")]
     UnknownOption,
     #[error("Invalid DHCP Message Type")]
     InvalidDhcpMessageType,
     #[error("Invalid Option Length")]
     InvalidOptionLength,
-    #[error("Invalid Value")]
-    InvalidValue,
-    #[error("Encode error")]
-    EncodeError,
-    #[error("Decode error")]
-    DecodeError,
+    #[error("Invalid Value {0}")]
+    InvalidValue(String),
+    #[error("Encode error {0}")]
+    EncodeError(String),
+    #[error("Decode error {0}")]
+    DecodeError(String),
     #[error("I/O error")]
     IoError(#[from] std::io::Error),
-    #[error("Netlink error")]
-    NetlinkError,
+    #[error("Netlink error {0}")]
+    NetlinkError(String),
     #[error("Config error")]
     ConfigError,
     #[error("Unknown error")]

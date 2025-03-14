@@ -108,7 +108,7 @@ impl DhcpMessage {
         // Check magic cookie for DHCP message.
         // TBD: return code
         if cookie != [0x63u8, 0x82, 0x53, 0x63] {
-            return Err(DhcpError::DecodeError)
+            return Err(DhcpError::DecodeError(format!("DHCP Magic Cookie {:?}", cookie)))
         }
         
         // TBD: should check size of received packet, minimum 300 or so.
@@ -387,7 +387,7 @@ impl DhcpMessage {
                 DhcpOptionCode::ClientId => {
                     let (len, mut id) = option_u8_vec(&b, 0)?;
                     if len < 2 {
-                        Err(DhcpError::DecodeError)
+                        Err(DhcpError::DecodeError(format!("ClientId {:?}", id)))
                     } else {
                         let t = id[0];
                         id.remove(0);
@@ -578,7 +578,7 @@ impl DhcpMessage {
                 DhcpOptionCode::AutoConfig => {
                     let (len, v) = option_u8(&b)?;
                     if v != 0 && v != 1 {
-                        Err(DhcpError::InvalidValue)
+                        Err(DhcpError::InvalidValue(format!("AuthConfig {:?}", v)))
                     } else {
                         Ok((len, DhcpOption::AutoConfig(v)))
                     }
@@ -712,7 +712,7 @@ impl DhcpMessage {
                 DhcpOptionCode::PXELinuxMagic => {
                     let (len, v) = option_u32(&b)?;
                     if v != 0xF100747E {
-                        Err(DhcpError::InvalidValue)
+                        Err(DhcpError::InvalidValue(format!("PXELinuxMagic {:#08x}", v)))
                     } else {
                         Ok((len, DhcpOption::PXELinuxMagic(v)))
                     }
@@ -887,7 +887,7 @@ impl DhcpMessage {
                 }
                 //DhcpOption:: => {}
                 _ => {
-                    Err(DhcpError::EncodeError)
+                    Err(DhcpError::EncodeError(format!("The option ({:?}) not supported", opt)))
                 }
             };
 

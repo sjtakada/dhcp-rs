@@ -538,9 +538,9 @@ impl Netlink {
                     libc::NLMSG_DONE => break 'outer,
                     libc::NLMSG_ERROR => {
                         let _errbuf = &buf[nlmsg_data()..];
-                        let _nlmsgerr = buf as *const _ as *const libc::nlmsgerr;
+                        let nlmsgerr = buf as *const _ as *const libc::nlmsgerr;
 
-                        return Err(DhcpError::NetlinkError/*::System("Error from kernel".to_string())*/)
+                        return Err(DhcpError::NetlinkError(format!("{:?}", nlmsgerr)))
                     },
                     _ => {
                     }
@@ -549,7 +549,7 @@ impl Netlink {
                 //debug!("Nlmsg: type: {}, len: {}", nlmsg_type, nlmsg_len);
 
                 if (nlmsg_len as usize) < nlmsg_attr::<T>() {
-                    return Err(DhcpError::NetlinkError/*::Other("Insufficient Nlmsg length".to_string())*/)
+                    return Err(DhcpError::NetlinkError("Insufficient Nlmsg length".to_string()))
                 }
 
                 let databuf = &buf[nlmsg_data()..];
@@ -717,14 +717,12 @@ impl KernelDriver for Netlink {
     fn get_link_all(&self) -> Result<(), DhcpError> {
         println!("* Get all links from the kernel");
 
-        if let Err(_err) = self.send_request(libc::AF_PACKET, libc::RTM_GETLINK as i32) {
-            //error!("Send request: RTM_GETLINK");
-            return Err(DhcpError::NetlinkError/*::Link(err.to_string())*/)
+        if let Err(err) = self.send_request(libc::AF_PACKET, libc::RTM_GETLINK as i32) {
+            return Err(DhcpError::NetlinkError(err.to_string()))
         }
 
-        if let Err(_err) = self.parse_info(&Netlink::parse_interface) {
-            //error!("Parse info: RTM_GETLINK");
-            return Err(DhcpError::NetlinkError/*::Link(err.to_string())*/)
+        if let Err(err) = self.parse_info(&Netlink::parse_interface) {
+            return Err(DhcpError::NetlinkError(err.to_string()))
         }
 
         Ok(())
@@ -734,14 +732,12 @@ impl KernelDriver for Netlink {
     fn get_ipv4_address_all(&self) -> Result<(), DhcpError> {
         println!("* Get all IPv4 addresses from the kernel" );
 
-        if let Err(_err) = self.send_request(libc::AF_INET, libc::RTM_GETADDR as i32) {
-            //error!("Send request: RTM_GETADDR");
-            return Err(DhcpError::NetlinkError/*::Address(err.to_string())*/)
+        if let Err(err) = self.send_request(libc::AF_INET, libc::RTM_GETADDR as i32) {
+            return Err(DhcpError::NetlinkError(err.to_string()))
         }
 
-        if let Err(_err) = self.parse_info(&Netlink::parse_interface_address::<Ipv4Addr>) {
-            //error!("Parse info: RTM_GETADDR");
-            return Err(DhcpError::NetlinkError/*::Address(err.to_string())*/)
+        if let Err(err) = self.parse_info(&Netlink::parse_interface_address::<Ipv4Addr>) {
+            return Err(DhcpError::NetlinkError(err.to_string()))
         }
 
         Ok(())

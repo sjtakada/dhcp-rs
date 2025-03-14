@@ -19,7 +19,7 @@ pub fn option_bool(buf: &[u8]) -> Result<(usize, bool), DhcpError> {
     match v {
         0 => Ok((len, false)),
         1 => Ok((len, true)),
-        _ => Err(DhcpError::InvalidValue),
+        _ => Err(DhcpError::InvalidValue(format!("bool {:?}", v))),
     }
 }
 
@@ -27,7 +27,7 @@ pub fn option_bool(buf: &[u8]) -> Result<(usize, bool), DhcpError> {
 pub fn option_u8(buf: &[u8]) -> Result<(usize, u8), DhcpError> {
     // The buf must have at least 2 bytes for code and length.
     if buf.len() < DHCP_OPTION_HLEN + size_of::<u8>() {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + size_of::<u8>())))
     } else {
         let len = buf[1] as usize;
         let b = &buf[DHCP_OPTION_HLEN..];
@@ -44,7 +44,7 @@ pub fn option_u8(buf: &[u8]) -> Result<(usize, u8), DhcpError> {
 pub fn option_u16(buf: &[u8]) -> Result<(usize, u16), DhcpError> {
     // The buf must have at least 2 bytes for code and length.
     if buf.len() < DHCP_OPTION_HLEN + size_of::<u16>() {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + size_of::<u16>())))
     } else {
         let len = buf[1] as usize;
         let b = &buf[DHCP_OPTION_HLEN..];
@@ -61,7 +61,7 @@ pub fn option_u16(buf: &[u8]) -> Result<(usize, u16), DhcpError> {
 pub fn option_u16_vec(buf: &[u8], min: usize) -> Result<(usize, Vec<u16>), DhcpError> {
     // The buf must have at least 2 bytes for code and length.
     if buf.len() < DHCP_OPTION_HLEN + min {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + min)))
     } else {
         let len = buf[1] as usize;
         let b = &buf[DHCP_OPTION_HLEN..];
@@ -83,7 +83,7 @@ pub fn option_u16_vec(buf: &[u8], min: usize) -> Result<(usize, Vec<u16>), DhcpE
 pub fn option_i32(buf: &[u8]) -> Result<(usize, i32), DhcpError> {
     // The buf must have at least 2 bytes for code and length.
     if buf.len() < DHCP_OPTION_HLEN + size_of::<i32>() {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + size_of::<i32>())))
     } else {
         let len = buf[1] as usize;
         let b = &buf[DHCP_OPTION_HLEN..];
@@ -100,7 +100,7 @@ pub fn option_i32(buf: &[u8]) -> Result<(usize, i32), DhcpError> {
 pub fn option_u32(buf: &[u8]) -> Result<(usize, u32), DhcpError> {
     // The buf must have at least 2 bytes for code and length.
     if buf.len() < DHCP_OPTION_HLEN + size_of::<u32>() {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + size_of::<u32>())))
     } else {
         let len = buf[1] as usize;
         let b = &buf[DHCP_OPTION_HLEN..];
@@ -117,7 +117,7 @@ pub fn option_u32(buf: &[u8]) -> Result<(usize, u32), DhcpError> {
 pub fn option_u8_vec(buf: &[u8], min: usize) -> Result<(usize, Vec<u8>), DhcpError> {
     // The buf must have at least 2 bytes for code and length.
     if buf.len() < DHCP_OPTION_HLEN + min {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + min)))
     } else {
         let len = buf[1] as usize;
         let b = &buf[DHCP_OPTION_HLEN..];
@@ -134,7 +134,7 @@ pub fn option_u8_vec(buf: &[u8], min: usize) -> Result<(usize, Vec<u8>), DhcpErr
 pub fn option_u8_u8_vec(buf: &[u8], min: usize) -> Result<(usize, (u8, Vec<u8>)), DhcpError> {
     // The buf must have at least 3 bytes for code, length and type.
     if buf.len() < DHCP_OPTION_HLEN + min {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + min)))
     } else {
         let len = buf[1] as usize;
         let v = buf[2];
@@ -152,7 +152,7 @@ pub fn option_u8_u8_vec(buf: &[u8], min: usize) -> Result<(usize, (u8, Vec<u8>))
 pub fn option_u8_string(buf: &[u8], min: usize) -> Result<(usize, (u8, String)), DhcpError> {
     // The buf must have at least 3 bytes for code, length and type.
     if buf.len() < DHCP_OPTION_HLEN + min {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + min)))
     } else {
         let len = buf[1] as usize;
         let v = buf[2];
@@ -163,7 +163,7 @@ pub fn option_u8_string(buf: &[u8], min: usize) -> Result<(usize, (u8, String)),
         } else if let Ok(s) = std::str::from_utf8(&b[1..len]) {
             Ok((DHCP_OPTION_HLEN + len, (v, s.to_string())))
         } else {
-            Err(DhcpError::DecodeError)
+            Err(DhcpError::DecodeError("The option has non-UTF8 characters".to_string()))
         }
     }
 }
@@ -172,7 +172,7 @@ pub fn option_u8_string(buf: &[u8], min: usize) -> Result<(usize, (u8, String)),
 pub fn option_bool_ipv4_vec(buf: &[u8], min: usize) -> Result<(usize, (bool, Vec<Ipv4Addr>)), DhcpError> {
     // The buf must have at least 3 bytes for code and length + bool.
     if buf.len() < DHCP_OPTION_HLEN + min {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + min)))
     } else if buf[1] == 0 {
         Err(DhcpError::InvalidOptionLength)
     } else {
@@ -181,7 +181,7 @@ pub fn option_bool_ipv4_vec(buf: &[u8], min: usize) -> Result<(usize, (bool, Vec
         let v: bool = match buf[2] {
             0 => false,
             1 => true,
-            _ => return Err(DhcpError::InvalidValue),
+            _ => return Err(DhcpError::InvalidValue(format!("bool {:?}", buf[2]))),
         };
         let b = &buf[DHCP_OPTION_HLEN + 1..];
         let size = size_of::<Ipv4Addr>();
@@ -202,7 +202,7 @@ pub fn option_bool_ipv4_vec(buf: &[u8], min: usize) -> Result<(usize, (bool, Vec
 pub fn option_string(buf: &[u8], min: usize) -> Result<(usize, String), DhcpError> {
     // The buf must have at least 2 bytes + min for code, length and string.
     if buf.len() < DHCP_OPTION_HLEN + min {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + min)))
     } else {
         let len = buf[1] as usize;
         let b = &buf[DHCP_OPTION_HLEN..];
@@ -212,7 +212,7 @@ pub fn option_string(buf: &[u8], min: usize) -> Result<(usize, String), DhcpErro
         } else if let Ok(s) = std::str::from_utf8(&b[..len]) {
             Ok((DHCP_OPTION_HLEN + len, s.to_string()))
         } else {
-            Err(DhcpError::DecodeError)
+            Err(DhcpError::DecodeError("The option has non-UTF8 characters".to_string()))
         }
     }
 }
@@ -221,7 +221,7 @@ pub fn option_string(buf: &[u8], min: usize) -> Result<(usize, String), DhcpErro
 pub fn option_bool_string(buf: &[u8], min: usize) -> Result<(usize, (bool, String)), DhcpError> {
     // The buf must have at least 3 bytes for code and length + bool.
     if buf.len() < DHCP_OPTION_HLEN + min {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + min)))
     } else if buf[1] == 0 {
         Err(DhcpError::InvalidOptionLength)
     } else {
@@ -230,7 +230,7 @@ pub fn option_bool_string(buf: &[u8], min: usize) -> Result<(usize, (bool, Strin
         let v: bool = match buf[2] {
             0 => false,
             1 => true,
-            _ => return Err(DhcpError::InvalidValue),
+            _ => return Err(DhcpError::InvalidValue(format!("bool {:?}", buf[2]))),
         };
         let b = &buf[DHCP_OPTION_HLEN + 1..];
 
@@ -239,7 +239,7 @@ pub fn option_bool_string(buf: &[u8], min: usize) -> Result<(usize, (bool, Strin
         } else if let Ok(s) = std::str::from_utf8(&b[..len]) {
             Ok((DHCP_OPTION_HLEN + 1 + len, (v, s.to_string())))
         } else {
-            Err(DhcpError::DecodeError)
+            Err(DhcpError::DecodeError("The option has non-UTF8 characters".to_string()))
         }
     }
 }
@@ -248,7 +248,7 @@ pub fn option_bool_string(buf: &[u8], min: usize) -> Result<(usize, (bool, Strin
 pub fn option_ipv4(buf: &[u8]) -> Result<(usize, Ipv4Addr), DhcpError> {
     // The buf must have at least 2 bytes for code and length.
     if buf.len() < DHCP_OPTION_HLEN + size_of::<Ipv4Addr>() {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + size_of::<Ipv4Addr>())))
     } else {
         let len = buf[1] as usize;
         let b = &buf[DHCP_OPTION_HLEN..];
@@ -265,7 +265,7 @@ pub fn option_ipv4(buf: &[u8]) -> Result<(usize, Ipv4Addr), DhcpError> {
 pub fn option_ipv6(buf: &[u8]) -> Result<(usize, Ipv6Addr), DhcpError> {
     // The buf must have at least 2 bytes for code and length.
     if buf.len() < DHCP_OPTION_HLEN + size_of::<Ipv6Addr>() {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + size_of::<Ipv6Addr>())))
     } else {
         let len = buf[1] as usize;
         let b = &buf[DHCP_OPTION_HLEN..];
@@ -282,7 +282,7 @@ pub fn option_ipv6(buf: &[u8]) -> Result<(usize, Ipv6Addr), DhcpError> {
 pub fn option_ipv4_vec(buf: &[u8], min: usize) -> Result<(usize, Vec<Ipv4Addr>), DhcpError> {
     // The buf must have at least 2 bytes for code and length.
     if buf.len() < DHCP_OPTION_HLEN + min {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + min)))
     } else {
         let len = buf[1] as usize;
         let b = &buf[DHCP_OPTION_HLEN..];
@@ -304,7 +304,7 @@ pub fn option_ipv4_vec(buf: &[u8], min: usize) -> Result<(usize, Vec<Ipv4Addr>),
 pub fn option_ipv4_pair_vec(buf: &[u8], min: usize) -> Result<(usize, Vec<Ipv4AddrPair>), DhcpError> {
     // The buf must have at least 2 bytes for code and length.
     if buf.len() < DHCP_OPTION_HLEN + min {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("buf.len() == {:?} < min {:?}", buf.len(), DHCP_OPTION_HLEN + min)))
     } else {
         let len = buf[1] as usize;
         let b = &buf[DHCP_OPTION_HLEN..];
@@ -328,7 +328,7 @@ pub fn option_ipv4_pair_vec(buf: &[u8], min: usize) -> Result<(usize, Vec<Ipv4Ad
 pub fn option_client_fqdn(buf: &[u8]) -> Result<(usize, ClientFQDN), DhcpError> {
     // The buf must have at least 5 bytes for code, length, flags, rcode1 and rcode2.
     if buf.len() < DHCP_OPTION_HLEN + 3 {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("for Client FQDN option > {:?}", buf.len())))
     } else {
         let len = buf[1] as usize;
         let b = &buf[DHCP_OPTION_HLEN..];
@@ -343,7 +343,7 @@ pub fn option_client_fqdn(buf: &[u8]) -> Result<(usize, ClientFQDN), DhcpError> 
                 if let Ok(s) = std::str::from_utf8(&b[3..len - 3]) {
                     fqdn = s.to_string();
                 } else {
-                    return Err(DhcpError::DecodeError)
+                    return Err(DhcpError::DecodeError("The Client FQDN has non-UTF8 characters".to_string()))
                 }
             }
             Ok((DHCP_OPTION_HLEN + len, ClientFQDN { flags, rcode1, rcode2, fqdn }))
@@ -355,7 +355,7 @@ pub fn option_client_fqdn(buf: &[u8]) -> Result<(usize, ClientFQDN), DhcpError> 
 pub fn option_relay_agent_info(buf: &[u8]) -> Result<(usize, RelayAgentInformation), DhcpError> {
     // The buf must have at least 2 bytes.
     if buf.len() < DHCP_OPTION_HLEN + DHCP_SUBOPTION_HLEN {
-        Err(DhcpError::InsufficientBufferSize)
+        Err(DhcpError::InsufficientBufferSize(format!("for RelayAgentInformation option > {:?}", buf.len())))
     } else {
         let len = buf[1] as usize;
         let b = &buf[DHCP_OPTION_HLEN..];
@@ -370,7 +370,8 @@ pub fn option_relay_agent_info(buf: &[u8]) -> Result<(usize, RelayAgentInformati
                 let t = sb[0];
                 let l = sb[1] as usize;
                 if l + DHCP_SUBOPTION_HLEN > sb.len() {
-                    return Err(DhcpError::DecodeError)
+                    return Err(DhcpError::DecodeError(format!("buffer len {:?} is not sufficient < {:?}",
+                                                              sb.len(), l + DHCP_SUBOPTION_HLEN)))
                 }
                 match t {
                     x if x == DhcpAgentSubOptionCode::CircuitID as u8 => {
@@ -379,7 +380,7 @@ pub fn option_relay_agent_info(buf: &[u8]) -> Result<(usize, RelayAgentInformati
                     x if x == DhcpAgentSubOptionCode::RemoteID as u8 => {
                         remote_id = Some(sb[DHCP_SUBOPTION_HLEN..DHCP_SUBOPTION_HLEN + l].to_vec());
                     }
-                    _ => return Err(DhcpError::DecodeError),
+                    _ => return Err(DhcpError::DecodeError(format!("Agent SubOption {:?}", t))),
                 }
                 sb = &sb[DHCP_SUBOPTION_HLEN + l..];
             }
