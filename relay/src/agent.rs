@@ -3,6 +3,7 @@
 //   Copyright (C) 2024-2025, Toshiaki Takada
 //
 use std::rc::Rc;
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::os::unix::io::AsRawFd;
 use std::net::UdpSocket;
@@ -51,10 +52,17 @@ impl Connected {
 }
 
 /// Interface.
+#[derive(Debug)]
 pub struct Interface {
 
     /// Kernel Link.
     link: KernelLink,
+
+    /// Upstream flag.
+    upstream: Cell<bool>,
+
+    /// Downstream flag.
+    downstream: Cell<bool>,
 
     /// Circuit ID.
     circuit_id: String,
@@ -65,11 +73,15 @@ pub struct Interface {
 
 impl Interface {
     pub fn new(link: KernelLink, hostname: &str) -> Interface {
+        let upstream = Cell::new(false);
+        let downstream = Cell::new(false);
         let circuit_id = format!("{}:{}", hostname, link.name);
         let remote_id = format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                                 link.hwaddr[0], link.hwaddr[1], link.hwaddr[2],
                                 link.hwaddr[3], link.hwaddr[4], link.hwaddr[5]);
         Interface {
+            upstream,
+            downstream,
             link,
             circuit_id,
             remote_id,
@@ -89,11 +101,11 @@ pub struct RelayAgent {
     /// Hostname.
     hostname: RefCell<String>,
 
-    /// Ifindex to KernelLink map.
-    index2link: RefCell<HashMap<i32, Rc<Interface>>>,
+    /// Name to ifindex map.
+    name2index: RefCell<HashMap<String, i32>>,
 
-    /// Name to KernelLink map.
-    name2link: RefCell<HashMap<String, Rc<Interface>>>,
+    /// Ifindex to Interface map.
+    index2link: RefCell<HashMap<i32, Interface>>,
 
     /// Ifindex to Connected.
     index2conn: RefCell<HashMap<i32, Connected>>,
@@ -108,10 +120,44 @@ impl RelayAgent {
             config: config,
             kernel: RefCell::new(Kernel::new()),
             hostname: RefCell::new(String::new()),
+            name2index: RefCell::new(HashMap::new()),
             index2link: RefCell::new(HashMap::new()),
-            name2link: RefCell::new(HashMap::new()),
             index2conn: RefCell::new(HashMap::new()),
             ipv4addr2index: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// Set upstream by name.
+    pub fn set_upstream_by_name(&self, name: &str, flag: bool) -> Result<(), DhcpError> {
+        if let Some(ifindex) = self.name2index.borrow().get(name) {
+            let binding = self.index2link.borrow();
+            let intf = binding.get(&ifindex).unwrap();
+            intf.upstream.replace(flag);
+            Ok(())
+        } else {
+            Err(DhcpError::UnknownError)
+        }
+    }
+
+    /// Set downstream by name.
+    pub fn set_downstream_by_name(&self, name: &str, flag: bool) -> Result<(), DhcpError> {
+        if let Some(ifindex) = self.name2index.borrow().get(name) {
+            let binding = self.index2link.borrow();
+            let intf = binding.get(&ifindex).unwrap();
+            intf.downstream.replace(flag);
+            Ok(())
+        } else {
+            Err(DhcpError::UnknownError)
+        }
+    }
+
+    /// Lookup ifindex by IPv4addr.
+    pub fn get_ifindex_by_ipv4addr(&self, addr: &Ipv4Addr) -> Option<i32> {
+        let binding = self.ipv4addr2index.borrow();
+        if let Some(ifindex) = binding.get(addr) {
+            Some(*ifindex)
+        } else {
+            None
         }
     }
 
@@ -137,10 +183,10 @@ impl RelayAgent {
     pub fn get_add_link(&self, kl: KernelLink) {
         let ifindex = kl.ifindex;
         let name = kl.name.clone();
-        let intf = Rc::new(Interface::new(kl, self.hostname.borrow().as_str()));
+        let intf = Interface::new(kl, self.hostname.borrow().as_str());
 
-        self.index2link.borrow_mut().insert(ifindex, intf.clone());
-        self.name2link.borrow_mut().insert(name, intf.clone());
+        self.name2index.borrow_mut().insert(name, ifindex);
+        self.index2link.borrow_mut().insert(ifindex, intf);
     }
 
     /// Add an IPv4 address to agent.
@@ -198,18 +244,20 @@ impl RelayAgent {
                                agent_ip: Ipv4Addr) -> Result<usize, DhcpError> {
         println!("* Handle BOOTREQUEST");
 
-        // TBD. Check if giaddr is set or not.
-        dhcp_message.giaddr = agent_ip;
-
-        // TBD, Add Relay Agent Information.
+        // Check if the received interface is a downstream interface.
         let binding = self.index2link.borrow_mut();
-        let (circuit_id, remote_id) = match binding.get(&ifindex) {
-            Some(v) => (v.circuit_id.as_str(), v.remote_id.as_str()),
-            None => ("placeholder", "00:00:00:00:00:00"),
-        };
+        let intf = binding.get(&ifindex).unwrap();  // Should not panic, should it?
+        if !intf.downstream.get() {
+            println!("! Received DHCP packet on non-downstream interface {:?}", intf.link.name);
+            return Ok(0)
+        }
+
+        let circuit_id = intf.circuit_id.as_str();
+        let remote_id = intf.remote_id.as_str();
 
         let rai = RelayAgentInformation::from(Some(circuit_id), Some(remote_id));
         dhcp_message.options.push(DhcpOption::RelayAgentInformation(rai));
+        dhcp_message.giaddr = agent_ip;
 
         let (buf, len) = dhcp_message.octets()?;
         println!("*** DHCP message len: {}", len);
@@ -243,10 +291,23 @@ impl RelayAgent {
     pub fn handle_boot_reply(&self, mut dhcp_message: DhcpMessage,
                              _config_vrf: &ConfigVrf,
                              _sock: &UdpSocket, fd: i32,
-                             ds_ifindex: i32) -> Result<usize, DhcpError> {
+                             ifindex: i32) -> Result<usize, DhcpError> {
         println!("* Handle BOOTREPLY");
 
-        // TBD, if giaddr is set or not.
+        // Check if the received interface is an upstream interface.
+        let binding = self.index2link.borrow_mut();
+        let intf = binding.get(&ifindex).unwrap();  // Should not panic, should it?
+        if !intf.upstream.get() {
+            println!("! Received DHCP packet on non-upstream interface {:?}", intf.link.name);
+            return Ok(0)
+        }
+
+        // Check giaddr in DHCP message and lookup an ifindex.
+        let agent_ip = dhcp_message.giaddr;
+        let ifindex = match self.get_ifindex_by_ipv4addr(&agent_ip) {
+            Some(ifindex) => ifindex,
+            None => return Err(DhcpError::UnknownAgentAddressError(agent_ip)),
+        };
         dhcp_message.giaddr = Ipv4Addr::new(0, 0, 0, 0);
 
         // Strip Relay Agent Information if present.
@@ -266,7 +327,7 @@ impl RelayAgent {
         let dst = SockaddrIn::new(255, 255, 255, 255, 68);
         let iov = [IoSlice::new(&buf[..])];
         let addr = in_addr {s_addr: 0xffffffff};
-        let ipi = in_pktinfo { ipi_ifindex: ds_ifindex, ipi_spec_dst: in_addr { s_addr: 0 }, ipi_addr: addr };
+        let ipi = in_pktinfo { ipi_ifindex: ifindex, ipi_spec_dst: in_addr { s_addr: 0 }, ipi_addr: addr };
         let cmsg = ControlMessage::Ipv4PacketInfo(&ipi);
 
         match sendmsg::<SockaddrIn>(fd, &iov, &[cmsg], MsgFlags::empty(), Some(&dst)) {
@@ -278,10 +339,41 @@ impl RelayAgent {
         }
     }
 
+    pub fn config_check(&self) -> Result<(), DhcpError> {
+        // Validate interface config.  TBD/Vrf
+        let vrf = "default";
+
+        // Check interfaces downstream & upstream.
+        if let Some(config_vrf) = self.config.vrf.get(vrf) {
+            let config_intf = &config_vrf.interfaces;
+            if let Some(ref upstream) = config_intf.upstream {
+                for name in upstream {
+                    if let Err(_) = self.set_upstream_by_name(name, true) {
+                        println!("!!! No such interface {:?}", name);
+                    }
+                }
+            }
+
+            if let Some(ref downstream) = config_intf.downstream {
+                for name in downstream {
+                    if let Err(_) = self.set_downstream_by_name(name, true) {
+                        println!("!!! No such interface {:?}", name);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn start(&self) -> Result<(), DhcpError> {
         // Initialize Kernel interface.
         self.kernel.borrow_mut().init();
 
+        // Check and process the config.
+        self.config_check().unwrap();
+
+        // Open DHCP UDP socket.
         let sock = UdpSocket::bind("0.0.0.0:67")?;
         let fd = sock.as_raw_fd();
         let mut cmsg = cmsg_space!(in_pktinfo);
@@ -295,8 +387,6 @@ impl RelayAgent {
 
         let res = setsockopt(&sock, ReusePort, &true).unwrap();
         println!("* Set setsockopt ReusePort {:?}", res);
-
-        let mut ds_ifindex = 0;
 
         loop {
             let mut buf: &mut [u8] = &mut [0; 2048];
@@ -333,16 +423,11 @@ impl RelayAgent {
                     println!("*** {:?}", dhcp_message);
 
                     let result = match dhcp_message.op {
-                        // XXX remember received interface and IP address
-                        // and put it in agent option
                         BootpMessageType::BOOTREQUEST => {
-                            // record downstream ifindex for later use.
-                            ds_ifindex = ifindex;
                             self.handle_boot_request(dhcp_message, config_vrf, &sock, fd, ifindex, dst_ip)
                         }
-                        // Decode agent option and use the IP as a source interface to send broadcast back to client
                         BootpMessageType::BOOTREPLY => {
-                            self.handle_boot_reply(dhcp_message, config_vrf, &sock, fd, ds_ifindex)
+                            self.handle_boot_reply(dhcp_message, config_vrf, &sock, fd, ifindex)
                         }
                     };
 

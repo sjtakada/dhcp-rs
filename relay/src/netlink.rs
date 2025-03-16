@@ -18,79 +18,6 @@ use crate::*;
 use crate::kernel::*;
 use crate::address_family::*;
 
-/*
-/// Kernel Link Abstraction - incorporated from reze-rs.
-pub struct KernelLink {
-
-    /// Inerface Index.
-    pub ifindex: i32,
-
-    /// Interface name.
-    pub name: String,
-
-    /// Interface Type.
-    pub hwtype: u16,
-
-    /// Hardward Address.
-    pub hwaddr: [u8; 6],
-
-    /// MTU.
-    pub mtu: u32,
-}
-
-impl KernelLink {
-
-    /// Constructor.
-    pub fn new(index: i32, name: &str, hwtype: u16, hwaddr: [u8; 6], mtu: u32) -> KernelLink {
-        KernelLink {
-            ifindex: index,
-            name: String::from(name),
-            hwtype: hwtype,
-            hwaddr: hwaddr,
-            mtu: mtu,
-        }
-    }
-}
-
-/// Kernel Address Abstraction.
-pub struct KernelAddr<T: Addressable> {
-
-    /// Interface Index.
-    pub ifindex: i32,
-
-    /// Address prefix.
-    pub address: Prefix<T>,
-
-    /// Destination address prefix for peer.
-    pub destination: Option<Prefix<T>>,
-
-    /// Secondary address.
-    pub secondary: bool,
-
-    /// Unnumbered.
-    pub unnumbered: bool,
-
-    /// Label.
-    pub label: Option<String>,
-}
-
-impl<T: Addressable> KernelAddr<T> {
-
-    /// Constructor.
-    pub fn new(ifindex: i32, prefix: Prefix<T>, destination: Option<Prefix<T>>,
-               secondary: bool, unnumbered: bool, label: Option<String>) -> KernelAddr<T> {
-        KernelAddr::<T> {
-            ifindex: ifindex,
-            address: prefix,
-            destination: destination,
-            secondary: secondary,
-            unnumbered: unnumbered,
-            label: label,
-        }
-    }
-}
-*/
-
 const RTMGRP_LINK: libc::c_int = 1;
 const RTMGRP_IPV4_IFADDR: libc::c_int = 0x10;
 const RTMGRP_IPV4_ROUTE: libc::c_int = 0x40;
@@ -598,7 +525,8 @@ impl Netlink {
         let ifname = match attr.get(&(libc::IFLA_IFNAME as i32)) {
             Some(ifname) => {
                 match str::from_utf8(ifname) {
-                    Ok(ifname) => ifname,
+                    // A little tricky, but need to trim the trailing '\0' char.
+                    Ok(ifname) => ifname.trim_matches(char::from(0)),
                     Err(_) => "(Non-utf8)",
                 }
             },

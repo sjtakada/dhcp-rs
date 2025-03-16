@@ -48,6 +48,8 @@ pub enum DhcpError {
     NetlinkError(String),
     #[error("Config error")]
     ConfigError,
+    #[error("Unknown Agent IP adress {0}")]
+    UnknownAgentAddressError(Ipv4Addr),
     #[error("Unknown error")]
     UnknownError,
 }

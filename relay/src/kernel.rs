@@ -13,6 +13,7 @@ use crate::netlink::*;
 use crate::*;
 
 /// Kernel Link Abstraction.
+#[derive(Debug)]
 pub struct KernelLink {
 
     /// Inerface Index.
@@ -46,6 +47,7 @@ impl KernelLink {
 }
 
 /// Kernel Address Abstraction.
+#[derive(Debug)]
 pub struct KernelAddr<T: Addressable> {
 
     /// Interface Index.
