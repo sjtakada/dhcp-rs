@@ -24,6 +24,7 @@ use nix::sys::socket::RecvMsg;
 use nix::sys::socket::SockaddrIn;
 use nix::sys::socket::sockopt::Ipv4PacketInfo;
 use nix::sys::socket::sockopt::ReusePort;
+use nix::unistd;
 use libc::*;
 
 use crate::*;
@@ -49,6 +50,33 @@ impl Connected {
     }
 }
 
+/// Interface.
+pub struct Interface {
+
+    /// Kernel Link.
+    link: KernelLink,
+
+    /// Circuit ID.
+    circuit_id: String,
+
+    /// Remote ID.
+    remote_id: String,
+}
+
+impl Interface {
+    pub fn new(link: KernelLink, hostname: &str) -> Interface {
+        let circuit_id = format!("{}:{}", hostname, link.name);
+        let remote_id = format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                                link.hwaddr[0], link.hwaddr[1], link.hwaddr[2],
+                                link.hwaddr[3], link.hwaddr[4], link.hwaddr[5]);
+        Interface {
+            link,
+            circuit_id,
+            remote_id,
+        }
+    }
+}
+
 /// Relay Agent.
 pub struct RelayAgent {
 
@@ -58,11 +86,14 @@ pub struct RelayAgent {
     /// Kernel driver interface.
     kernel: RefCell<Kernel>,
 
+    /// Hostname.
+    hostname: RefCell<String>,
+
     /// Ifindex to KernelLink map.
-    index2link: RefCell<HashMap<i32, Rc<KernelLink>>>,
+    index2link: RefCell<HashMap<i32, Rc<Interface>>>,
 
     /// Name to KernelLink map.
-    name2link: RefCell<HashMap<String, Rc<KernelLink>>>,
+    name2link: RefCell<HashMap<String, Rc<Interface>>>,
 
     /// Ifindex to Connected.
     index2conn: RefCell<HashMap<i32, Connected>>,
@@ -76,6 +107,7 @@ impl RelayAgent {
         RelayAgent {
             config: config,
             kernel: RefCell::new(Kernel::new()),
+            hostname: RefCell::new(String::new()),
             index2link: RefCell::new(HashMap::new()),
             name2link: RefCell::new(HashMap::new()),
             index2conn: RefCell::new(HashMap::new()),
@@ -105,10 +137,10 @@ impl RelayAgent {
     pub fn get_add_link(&self, kl: KernelLink) {
         let ifindex = kl.ifindex;
         let name = kl.name.clone();
-        let kl = Rc::new(kl);
+        let intf = Rc::new(Interface::new(kl, self.hostname.borrow().as_str()));
 
-        self.index2link.borrow_mut().insert(ifindex, kl.clone());
-        self.name2link.borrow_mut().insert(name, kl.clone());
+        self.index2link.borrow_mut().insert(ifindex, intf.clone());
+        self.name2link.borrow_mut().insert(name, intf.clone());
     }
 
     /// Add an IPv4 address to agent.
@@ -153,11 +185,16 @@ impl RelayAgent {
             Box::new(move |ka: KernelAddr<Ipv6Addr>| {
                 clone.get_add_ipv6_address(ka);
             }));
+
+        // Get hostname.
+        let hostname_osstr = unistd::gethostname().expect("Failed getting hostname");
+        let hostname = hostname_osstr.into_string().expect("Hostname wasn't valid UTF-8");
+        agent.hostname.replace(hostname);
     }
 
     pub fn handle_boot_request(&self, mut dhcp_message: DhcpMessage,
                                config_vrf: &ConfigVrf,
-                               sock: &UdpSocket, _fd: i32,
+                               sock: &UdpSocket, _fd: i32, ifindex: i32,
                                agent_ip: Ipv4Addr) -> Result<usize, DhcpError> {
         println!("* Handle BOOTREQUEST");
 
@@ -165,8 +202,12 @@ impl RelayAgent {
         dhcp_message.giaddr = agent_ip;
 
         // TBD, Add Relay Agent Information.
-        let circuit_id = "hogehoge";
-        let remote_id = "0a:0b:0c:0d:0e:0f";
+        let binding = self.index2link.borrow_mut();
+        let (circuit_id, remote_id) = match binding.get(&ifindex) {
+            Some(v) => (v.circuit_id.as_str(), v.remote_id.as_str()),
+            None => ("placeholder", "00:00:00:00:00:00"),
+        };
+
         let rai = RelayAgentInformation::from(Some(circuit_id), Some(remote_id));
         dhcp_message.options.push(DhcpOption::RelayAgentInformation(rai));
 
@@ -297,7 +338,7 @@ impl RelayAgent {
                         BootpMessageType::BOOTREQUEST => {
                             // record downstream ifindex for later use.
                             ds_ifindex = ifindex;
-                            self.handle_boot_request(dhcp_message, config_vrf, &sock, fd, dst_ip)
+                            self.handle_boot_request(dhcp_message, config_vrf, &sock, fd, ifindex, dst_ip)
                         }
                         // Decode agent option and use the IP as a source interface to send broadcast back to client
                         BootpMessageType::BOOTREPLY => {

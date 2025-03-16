@@ -24,7 +24,7 @@ pub struct KernelLink {
     /// Interface Type.
     pub hwtype: u16,
 
-    /// Hardward Address.
+    /// Hardward Address. TBD length
     pub hwaddr: [u8; 6],
 
     /// MTU.
