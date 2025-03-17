@@ -28,6 +28,8 @@ use nix::sys::socket::sockopt::ReusePort;
 use nix::unistd;
 use libc::*;
 
+use rtable::prefix::Prefixable;
+
 use crate::*;
 use crate::message::*;
 use crate::config::*;
@@ -69,6 +71,9 @@ pub struct Interface {
 
     /// Remote ID.
     remote_id: String,
+
+    /// Hash index for smart relay.
+    sindex: Cell<usize>,
 }
 
 impl Interface {
@@ -85,6 +90,7 @@ impl Interface {
             link,
             circuit_id,
             remote_id,
+            sindex: Cell::new(0),
         }
     }
 }
@@ -112,6 +118,9 @@ pub struct RelayAgent {
 
     /// IPv4 address to KernelAddress map.
     ipv4addr2index: RefCell<HashMap<Ipv4Addr, i32>>,
+
+    /// Counter per Agent IP.
+    counter: RefCell<HashMap<Ipv4Addr, u32>>,
 }
 
 impl RelayAgent {
@@ -124,6 +133,31 @@ impl RelayAgent {
             index2link: RefCell::new(HashMap::new()),
             index2conn: RefCell::new(HashMap::new()),
             ipv4addr2index: RefCell::new(HashMap::new()),
+            counter: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// Increment agent server counter.
+    pub fn inc_agent_server_counter(&self, agent_ip: &Ipv4Addr) {
+        let mut binding = self.counter.borrow_mut();
+        *binding.entry(agent_ip.clone()).or_insert(0) += 1;
+    }
+
+    /// Decrement agent server counter.
+    pub fn reset_agent_server_counter(&self, agent_ip: &Ipv4Addr) {
+        let mut binding = self.counter.borrow_mut();
+        if let Some(entry) = binding.get_mut(agent_ip) {
+            *entry = 0;
+        }
+    }
+
+    /// Get agent server counter.
+    pub fn get_agent_server_counter(&self, agent_ip: &Ipv4Addr) -> u32 {
+        let binding = self.counter.borrow();
+        if let Some(entry) = binding.get(agent_ip) {
+            *entry
+        } else {
+            0
         }
     }
 
@@ -159,6 +193,47 @@ impl RelayAgent {
         } else {
             None
         }
+    }
+
+    /// Return retry count if smart relay is enabled.
+    pub fn is_smart_relay_enabled(&self) -> Option<u8> {
+        if let Some(relay_config) = &self.config.global.smart_relay {
+            if relay_config.enabled {
+                if let Some(retry_count) = relay_config.retry_count {
+                    Some(retry_count)
+                } else {
+                    Some(3)
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Determine Agent IP by ifindex.
+    pub fn get_agent_ipv4_addr(&self, ifindex: i32) -> Ipv4Addr {
+        let binding = self.index2link.borrow_mut();
+        let intf = binding.get(&ifindex).unwrap();  // Should not panic, should it?
+        let sindex = intf.sindex.get();
+
+        // Select agent IP.
+        let binding = self.index2conn.borrow();
+        let conn = binding.get(&ifindex).unwrap();
+        let kaddr = &conn.v4[sindex % conn.v4.len()];
+        let octets = kaddr.address.octets();
+
+        Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3])
+    }
+
+    /// Increment sindex on an interface.
+    pub fn inc_intf_sindex(&self, ifindex: i32) {
+        let binding = self.index2link.borrow_mut();
+        let intf = binding.get(&ifindex).unwrap();  // Should not panic, should it?
+        //let sindex = intf.sindex.get();
+        let sindex = intf.sindex.get();
+        intf.sindex.replace(sindex + 1);
     }
 
     /// Retrieve PKTINFO from a control message.
@@ -240,18 +315,29 @@ impl RelayAgent {
 
     pub fn handle_boot_request(&self, mut dhcp_message: DhcpMessage,
                                config_vrf: &ConfigVrf,
-                               sock: &UdpSocket, _fd: i32, ifindex: i32,
-                               agent_ip: Ipv4Addr) -> Result<usize, DhcpError> {
+                               sock: &UdpSocket, _fd: i32, ifindex: i32) -> Result<usize, DhcpError> {
         println!("* Handle BOOTREQUEST");
 
+        let mut agent_ip = self.get_agent_ipv4_addr(ifindex);
+
+        // Smart choice.
+        if let Some(retry_count) = self.is_smart_relay_enabled() {
+            let count = self.get_agent_server_counter(&agent_ip);
+            if count as u8 >= retry_count {
+                self.reset_agent_server_counter(&agent_ip);
+                self.inc_intf_sindex(ifindex);
+
+                agent_ip = self.get_agent_ipv4_addr(ifindex);
+            }
+        }
+
         // Check if the received interface is a downstream interface.
-        let binding = self.index2link.borrow_mut();
+        let binding = self.index2link.borrow();
         let intf = binding.get(&ifindex).unwrap();  // Should not panic, should it?
         if !intf.downstream.get() {
             println!("! Received DHCP packet on non-downstream interface {:?}", intf.link.name);
             return Ok(0)
         }
-
         let circuit_id = intf.circuit_id.as_str();
         let remote_id = intf.remote_id.as_str();
 
@@ -264,6 +350,9 @@ impl RelayAgent {
 
         let mut count = 0;
         if let Some(ipv4addr) = &config_vrf.dhcp_servers.ipv4addr {
+            // Increment counter.
+            self.inc_agent_server_counter(&agent_ip);
+
             for server in ipv4addr {
                 let server_addr = match server.parse::<Ipv4Addr>() {
                     Ok(addr) => addr,
@@ -309,6 +398,9 @@ impl RelayAgent {
             None => return Err(DhcpError::UnknownAgentAddressError(agent_ip)),
         };
         dhcp_message.giaddr = Ipv4Addr::new(0, 0, 0, 0);
+
+        // Reset counter.
+        self.reset_agent_server_counter(&agent_ip);
 
         // Strip Relay Agent Information if present.
         if let Some(index) = dhcp_message.options.iter().position(|x| {
@@ -403,8 +495,9 @@ impl RelayAgent {
                 }
             };
 
-            let dst_ip = Ipv4Addr::from(ntohl(pktinfo.ipi_spec_dst.s_addr));
+            //let dst_ip = Ipv4Addr::from(ntohl(pktinfo.ipi_spec_dst.s_addr));
             let ifindex = pktinfo.ipi_ifindex;
+            println!("**** pktinfo {:?}", pktinfo);
 
             // TBD: identify VRF through the received interface.
             let vrf = "default";
@@ -424,7 +517,7 @@ impl RelayAgent {
 
                     let result = match dhcp_message.op {
                         BootpMessageType::BOOTREQUEST => {
-                            self.handle_boot_request(dhcp_message, config_vrf, &sock, fd, ifindex, dst_ip)
+                            self.handle_boot_request(dhcp_message, config_vrf, &sock, fd, ifindex)
                         }
                         BootpMessageType::BOOTREPLY => {
                             self.handle_boot_reply(dhcp_message, config_vrf, &sock, fd, ifindex)
