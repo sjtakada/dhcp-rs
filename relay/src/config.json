@@ -1,0 +1,33 @@
+{
+  "global" : {
+    "smart_relay": {
+      "enabled": true,
+      "retry_count": 3
+    },
+    "agent_option": {
+      "enabled": true,
+      "format": {
+        "circuit_id": "%hostname:%ifname",
+        "remote_id": "%hwaddress"
+      }
+    }
+  },
+  "vrf": {
+    "default": {
+      "interfaces": {
+        "upstream": [
+          "enp2s0f1"
+        ],
+        "downstream": [
+          "virbr1"
+        ]
+      },
+      "dhcp_servers": {
+        "ipv4addr": [
+          "192.168.10.10",
+          "192.168.10.11"
+        ]
+      }
+    }
+  }
+}
