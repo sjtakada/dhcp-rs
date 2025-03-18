@@ -125,9 +125,14 @@ pub struct RelayAgent {
 
 impl RelayAgent {
     pub fn new(config: Config) -> RelayAgent {
+        let debug = match config.global.debug {
+            Some(debug) => debug,
+            None => false,
+        };
+
         RelayAgent {
             config: config,
-            kernel: RefCell::new(Kernel::new()),
+            kernel: RefCell::new(Kernel::new(debug)),
             hostname: RefCell::new(String::new()),
             name2index: RefCell::new(HashMap::new()),
             index2link: RefCell::new(HashMap::new()),
@@ -320,7 +325,7 @@ impl RelayAgent {
 
         let mut agent_ip = self.get_agent_ipv4_addr(ifindex);
 
-        // Smart choice.
+        // Agent IP selection for Smart-relay.
         if let Some(retry_count) = self.is_smart_relay_enabled() {
             let count = self.get_agent_server_counter(&agent_ip);
             if count as u8 >= retry_count {
@@ -335,7 +340,7 @@ impl RelayAgent {
         let binding = self.index2link.borrow();
         let intf = binding.get(&ifindex).unwrap();  // Should not panic, should it?
         if !intf.downstream.get() {
-            println!("! Received DHCP packet on non-downstream interface {:?}", intf.link.name);
+            println!("!!! Received DHCP packet on non-downstream interface {:?}", intf.link.name);
             return Ok(0)
         }
         let circuit_id = intf.circuit_id.as_str();
@@ -346,7 +351,9 @@ impl RelayAgent {
         dhcp_message.giaddr = agent_ip;
 
         let (buf, len) = dhcp_message.octets()?;
-        println!("*** DHCP message len: {}", len);
+        if self.config.is_debug_enabled(){
+            println!("*** DHCP message len: {}", len);
+        }
 
         let mut count = 0;
         if let Some(ipv4addr) = &config_vrf.dhcp_servers.ipv4addr {
@@ -387,7 +394,7 @@ impl RelayAgent {
         let binding = self.index2link.borrow_mut();
         let intf = binding.get(&ifindex).unwrap();  // Should not panic, should it?
         if !intf.upstream.get() {
-            println!("! Received DHCP packet on non-upstream interface {:?}", intf.link.name);
+            println!("!!! Received DHCP packet on non-upstream interface {:?}", intf.link.name);
             return Ok(0)
         }
 
@@ -413,8 +420,10 @@ impl RelayAgent {
         }
 
         let (buf, len) = dhcp_message.octets()?;
-        println!("*** DHCP message len: {}", len);
-        //println!("{:?}", &buf[..len as usize]);
+        if self.config.is_debug_enabled(){
+            println!("*** DHCP message len: {}", len);
+            //println!("{:?}", &buf[..len as usize]);
+        }
 
         let dst = SockaddrIn::new(255, 255, 255, 255, 68);
         let iov = [IoSlice::new(&buf[..])];
@@ -485,7 +494,9 @@ impl RelayAgent {
             let mut iov = [IoSliceMut::new(&mut buf)];
             let res: RecvMsg<SockaddrIn> = recvmsg(fd, &mut iov, Some(&mut cmsg), MsgFlags::empty()).unwrap();  // TBD
 
-            println!("* Received {:?}", res);
+            if self.config.is_debug_enabled(){
+                println!("*** Received {:?}", res);
+            }
             let bytes = res.bytes;
             let pktinfo = match self.get_pktinfo_from_recvmsg(res) {
                 Some(pktinfo) => pktinfo,
@@ -497,7 +508,6 @@ impl RelayAgent {
 
             //let dst_ip = Ipv4Addr::from(ntohl(pktinfo.ipi_spec_dst.s_addr));
             let ifindex = pktinfo.ipi_ifindex;
-            println!("**** pktinfo {:?}", pktinfo);
 
             // TBD: identify VRF through the received interface.
             let vrf = "default";
@@ -513,7 +523,9 @@ impl RelayAgent {
             match DhcpMessage::new_from(&iov[0][..bytes]) {
                 // Extract DHCP message.
                 Ok(dhcp_message) => {
-                    println!("*** {:?}", dhcp_message);
+                    if self.config.is_debug_enabled(){
+                        println!("*** {:?}", dhcp_message);
+                    }
 
                     let result = match dhcp_message.op {
                         BootpMessageType::BOOTREQUEST => {

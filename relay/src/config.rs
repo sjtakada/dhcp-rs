@@ -12,11 +12,20 @@ pub struct Config {
     pub vrf: HashMap<String, ConfigVrf>,
 }
 
+impl Config {
+    pub fn is_debug_enabled(&self) -> bool {
+        match self.global.debug {
+            Some(debug) => debug,
+            None => false,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ConfigGlobal {
+    pub debug: Option<bool>,
     pub smart_relay: Option<ConfigSmartRelay>,
     pub agent_option: Option<ConfigAgentOption>,
-    pub debug: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -140,8 +140,8 @@ pub struct Kernel {
 impl Kernel {
 
     /// Constructor.
-    pub fn new() -> Kernel {
-        if let Some(driver) = get_driver() {
+    pub fn new(debug: bool) -> Kernel {
+        if let Some(driver) = get_driver(debug) {
             Kernel {
                 driver: Arc::new(driver),
             }

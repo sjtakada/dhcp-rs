@@ -1,5 +1,6 @@
 {
   "global" : {
+    "debug": true,
     "smart_relay": {
       "enabled": true,
       "retry_count": 3

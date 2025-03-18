@@ -292,6 +292,9 @@ impl NetlinkKernelCallback {
 /// Netlink Socket handler.
 pub struct Netlink {
 
+    /// Debug flag.
+    debug: bool,
+
     /// File descriptor for Netlink socket.
     sock: c_int,
     
@@ -323,7 +326,7 @@ impl Request {
 
 impl Netlink {
     /// Constructor - open Netlink socket and bind.
-    pub fn new() -> Result<Netlink, io::Error> {
+    pub fn new(debug: bool) -> Result<Netlink, io::Error> {
         let sock = unsafe {
             libc::socket(libc::AF_NETLINK, libc::SOCK_RAW, libc::NETLINK_ROUTE)
         };
@@ -361,6 +364,7 @@ impl Netlink {
         // TODO: set socket non-blocking. only for event socket.
 
         Ok(Netlink {
+            debug,
             sock,
             pid: snl.nl_pid,
             seq: Cell::new(0u32),
@@ -533,8 +537,10 @@ impl Netlink {
             None => "(Unknown)"
         };
 
-        println!("*** parse_interface() {} {} {} {:?} {}",
-                 ifindex, ifname, ifi.ifi_type, hwaddr, mtu);
+        if self.debug {
+            println!("*** parse_interface() {} {} {} {:?} {}",
+                     ifindex, ifname, ifi.ifi_type, hwaddr, mtu);
+        }
 
         // Callback to add Link.
         let kc = self.callback.borrow();
@@ -579,7 +585,9 @@ impl Netlink {
                 let ka = KernelAddr::<Ipv4Addr>::new(index, prefix, None, false, false, None);
                 kc.call_add_ipv4_address(ka);
 
-                println!("*** parse_interface_address() {} Ipv4Addr {:?}", index, prefix);
+                if self.debug {
+                    println!("*** parse_interface_address() {} Ipv4Addr {:?}", index, prefix);
+                }
             }
             (libc::AF_INET, libc::RTM_DELADDR) => {
                 let prefix = Prefix::<Ipv4Addr>::from_slice(address.unwrap(), ifa.ifa_prefixlen);
@@ -591,7 +599,9 @@ impl Netlink {
                 let ka = KernelAddr::<Ipv6Addr>::new(index, prefix, None, false, false, None);
                 kc.call_add_ipv6_address(ka);
 
-                println!("*** parse_interface_address() {} Ipv6Addr {:?}", index, prefix);
+                if self.debug {
+                    println!("*** parse_interface_address() {} Ipv6Addr {:?}", index, prefix);
+                }
             }
             (libc::AF_INET6, libc::RTM_DELADDR) => {
                 let prefix = Prefix::<Ipv6Addr>::from_slice(address.unwrap(), ifa.ifa_prefixlen);
@@ -680,8 +690,8 @@ impl KernelDriver for Netlink {
 }
 
 /// Public interface to get driver.
-pub fn get_driver() -> Option<Netlink> {
-    match Netlink::new() {
+pub fn get_driver(debug: bool) -> Option<Netlink> {
+    match Netlink::new(debug) {
 	Ok(netlink) => Some(netlink),
         Err(err) => {
             println!("Failed to initlaize Netlink driver {}", err);

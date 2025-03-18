@@ -21,8 +21,10 @@ fn main() {
     };
 
     let json_data: String = fs::read_to_string(config_file).unwrap();
-    let config: Config = serde_json::from_str(&json_data).expect("! JSON data error");
-    println!("* Read config from {} {:?}", config_file, config);
+    let config: Config = serde_json::from_str(&json_data).expect("!!! JSON data error");
+    if config.is_debug_enabled() {
+        println!("* Read config from {} {:?}", config_file, config);
+    }
 
     let agent = Rc::new(RelayAgent::new(config));
     RelayAgent::init(agent.clone());
